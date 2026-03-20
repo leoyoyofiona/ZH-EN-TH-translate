@@ -1,7 +1,9 @@
 .DS_Store
 .build/
 .xcodebuild/
+.xcode-release/
 DerivedData/
+dist/
 xcuserdata/
 *.xcuserstate
 *.swp

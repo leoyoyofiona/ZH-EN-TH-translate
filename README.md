@@ -66,7 +66,25 @@
 
 ## 下载与安装
 
-### 方式一：直接运行源码
+### 方式一：从 Releases 下载
+
+- 仓库地址：[ZH-EN-TH-translate](https://github.com/leoyoyofiona/ZH-EN-TH-translate)
+- 推荐下载发布包：`OfflineInterpreterApp-v0.1.0-macOS.zip`
+- 解压后直接运行 `OfflineInterpreterApp.app`
+
+如需本地重新生成发布 ZIP：
+
+```bash
+./scripts/build_release_zip.sh
+```
+
+生成结果默认位于：
+
+```bash
+dist/OfflineInterpreterApp-v0.1.0-macOS.zip
+```
+
+### 方式二：直接运行源码
 
 ```bash
 swift build
@@ -75,7 +93,7 @@ swift run OfflineInterpreterChecks
 ./scripts/open_app.sh --rebuild
 ```
 
-### 方式二：Xcode 签名运行
+### 方式三：Xcode 签名运行
 
 如果你要稳定使用“系统音频”模式，优先使用 Xcode 的签名版运行：
 
@@ -102,6 +120,7 @@ swift run OfflineInterpreterChecks
 - `Sources/OfflineInterpreterApp`：SwiftUI 窗口与双栏字幕 UI
 - `Sources/OfflineInterpreterChecks`：基础 smoke checks
 - `scripts/open_app.sh`：构建并打开稳定安装在 `~/Applications` 的 app
+- `scripts/build_release_zip.sh`：构建 Xcode Release 包并导出 ZIP
 - `OfflineInterpreterApp.xcodeproj`：适合 Xcode 正式签名运行的工程
 
 ## 已做的速度优化

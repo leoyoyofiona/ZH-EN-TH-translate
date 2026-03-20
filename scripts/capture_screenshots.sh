@@ -9,6 +9,9 @@ CONTENTS="$APP/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 SIGNING_IDENTITY="${CODE_SIGN_IDENTITY:-}"
+VERSION_FILE="$ROOT/Configurations/Version.xcconfig"
+MARKETING_VERSION="$(awk -F'= ' '/MARKETING_VERSION/ {print $2; exit}' "$VERSION_FILE" | tr -d '[:space:]')"
+BUILD_NUMBER="$(awk -F'= ' '/CURRENT_PROJECT_VERSION/ {print $2; exit}' "$VERSION_FILE" | tr -d '[:space:]')"
 
 mkdir -p "$SHOT_DIR"
 
@@ -23,7 +26,7 @@ build_app() {
     mkdir -p "$MACOS_DIR"
     cp "$bin_dir/OfflineInterpreterApp" "$MACOS_DIR/OfflineInterpreterApp"
 
-    cat > "$CONTENTS/Info.plist" <<'PLIST'
+    cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -43,9 +46,9 @@ build_app() {
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>${MARKETING_VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>${BUILD_NUMBER}</string>
     <key>LSMinimumSystemVersion</key>
     <string>26.0</string>
     <key>NSMicrophoneUsageDescription</key>

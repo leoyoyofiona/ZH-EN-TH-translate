@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+VERSION_FILE="$ROOT/Configurations/Version.xcconfig"
 
 APP_DIR="$HOME/Applications/OfflineInterpreterApp.app"
 CONTENTS="$APP_DIR/Contents"
@@ -15,6 +16,9 @@ if [[ -z "$SIGNING_IDENTITY" ]]; then
     SIGNING_IDENTITY="$(security find-identity -v -p codesigning "$LOGIN_KEYCHAIN" 2>/dev/null | awk '/"/ {print $2; exit}')"
 fi
 
+MARKETING_VERSION="$(awk -F'= ' '/MARKETING_VERSION/ {print $2; exit}' "$VERSION_FILE" | tr -d '[:space:]')"
+BUILD_NUMBER="$(awk -F'= ' '/CURRENT_PROJECT_VERSION/ {print $2; exit}' "$VERSION_FILE" | tr -d '[:space:]')"
+
 build_app() {
     swift build
 
@@ -26,7 +30,7 @@ build_app() {
     mkdir -p "$MACOS_DIR"
     cp "$bin" "$MACOS_DIR/OfflineInterpreterApp"
 
-    cat > "$CONTENTS/Info.plist" <<'PLIST'
+    cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -46,9 +50,9 @@ build_app() {
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>${MARKETING_VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>${BUILD_NUMBER}</string>
     <key>LSMinimumSystemVersion</key>
     <string>26.0</string>
     <key>NSMicrophoneUsageDescription</key>
