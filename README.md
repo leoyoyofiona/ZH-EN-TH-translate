@@ -70,6 +70,7 @@
 
 ```bash
 swift build
+swift test
 swift run OfflineInterpreterChecks
 ./scripts/open_app.sh --rebuild
 ```
@@ -127,9 +128,16 @@ swift run OfflineInterpreterChecks
 本次补充语言后，已完成的验证包括：
 
 - 扩展语种后构建通过
+- `swift test` 通过
 - 语言切换控件可在同一窗口中切换多语种
 - 开发机上中文 / 英文 / 泰文支持本地识别与翻译
 - 日文 / 法文 / 德文 / 西班牙文 / 韩文已完成系统能力探测与应用内接入
+
+如需重新生成 GitHub 首页截图：
+
+```bash
+./scripts/capture_screenshots.sh
+```
 
 ## 开源说明
 
