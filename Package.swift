@@ -38,6 +38,10 @@ let package = Package(
         .executableTarget(
             name: "OfflineInterpreterChecks",
             dependencies: ["OfflineInterpreterKit"]
+        ),
+        .testTarget(
+            name: "OfflineInterpreterKitTests",
+            dependencies: ["OfflineInterpreterKit"]
         )
     ]
 )
