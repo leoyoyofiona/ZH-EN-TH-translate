@@ -1,0 +1,305 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000030 /* OfflineInterpreterApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000010 /* OfflineInterpreterApp.swift */; };
+		A10000000000000000000031 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000011 /* ContentView.swift */; };
+		A10000000000000000000032 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000013 /* Models.swift */; };
+		A10000000000000000000033 /* AudioCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000014 /* AudioCapture.swift */; };
+		A10000000000000000000034 /* AppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000015 /* AppViewModel.swift */; };
+		A10000000000000000000035 /* LanguageScorer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000016 /* LanguageScorer.swift */; };
+		A10000000000000000000036 /* LexiconOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000017 /* LexiconOverlay.swift */; };
+		A10000000000000000000037 /* OfflineReadinessService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000018 /* OfflineReadinessService.swift */; };
+		A10000000000000000000038 /* SpeechPlaybackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000019 /* SpeechPlaybackService.swift */; };
+		A10000000000000000000039 /* SpeechRecognitionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000001A /* SpeechRecognitionManager.swift */; };
+		A1000000000000000000003A /* TranslationPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000001B /* TranslationPipeline.swift */; };
+		A10000000000000000000050 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000040 /* AppKit.framework */; };
+		A10000000000000000000051 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000041 /* AVFoundation.framework */; };
+		A10000000000000000000052 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000042 /* CoreGraphics.framework */; };
+		A10000000000000000000053 /* CoreMedia.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000043 /* CoreMedia.framework */; };
+		A10000000000000000000054 /* CoreServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000044 /* CoreServices.framework */; };
+		A10000000000000000000055 /* NaturalLanguage.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000045 /* NaturalLanguage.framework */; };
+		A10000000000000000000056 /* ScreenCaptureKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000046 /* ScreenCaptureKit.framework */; };
+		A10000000000000000000057 /* Speech.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000047 /* Speech.framework */; };
+		A10000000000000000000058 /* Translation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000048 /* Translation.framework */; };
+		A10000000000000000000059 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000049 /* SwiftUI.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A1000000000000000000000E /* OfflineInterpreterApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OfflineInterpreterApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000010 /* OfflineInterpreterApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineInterpreterApp.swift; sourceTree = "<group>"; };
+		A10000000000000000000011 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		A10000000000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A10000000000000000000013 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		A10000000000000000000014 /* AudioCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCapture.swift; sourceTree = "<group>"; };
+		A10000000000000000000015 /* AppViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewModel.swift; sourceTree = "<group>"; };
+		A10000000000000000000016 /* LanguageScorer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageScorer.swift; sourceTree = "<group>"; };
+		A10000000000000000000017 /* LexiconOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LexiconOverlay.swift; sourceTree = "<group>"; };
+		A10000000000000000000018 /* OfflineReadinessService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineReadinessService.swift; sourceTree = "<group>"; };
+		A10000000000000000000019 /* SpeechPlaybackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechPlaybackService.swift; sourceTree = "<group>"; };
+		A1000000000000000000001A /* SpeechRecognitionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognitionManager.swift; sourceTree = "<group>"; };
+		A1000000000000000000001B /* TranslationPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationPipeline.swift; sourceTree = "<group>"; };
+		A1000000000000000000001C /* Project-Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Project-Debug.xcconfig"; sourceTree = "<group>"; };
+		A1000000000000000000001D /* Project-Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Project-Release.xcconfig"; sourceTree = "<group>"; };
+		A1000000000000000000001E /* App-Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "App-Debug.xcconfig"; sourceTree = "<group>"; };
+		A1000000000000000000001F /* App-Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "App-Release.xcconfig"; sourceTree = "<group>"; };
+		A10000000000000000000040 /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppKit.framework; path = System/Library/Frameworks/AppKit.framework; sourceTree = SDKROOT; };
+		A10000000000000000000041 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		A10000000000000000000042 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		A10000000000000000000043 /* CoreMedia.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMedia.framework; path = System/Library/Frameworks/CoreMedia.framework; sourceTree = SDKROOT; };
+		A10000000000000000000044 /* CoreServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreServices.framework; path = System/Library/Frameworks/CoreServices.framework; sourceTree = SDKROOT; };
+		A10000000000000000000045 /* NaturalLanguage.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = NaturalLanguage.framework; path = System/Library/Frameworks/NaturalLanguage.framework; sourceTree = SDKROOT; };
+		A10000000000000000000046 /* ScreenCaptureKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ScreenCaptureKit.framework; path = System/Library/Frameworks/ScreenCaptureKit.framework; sourceTree = SDKROOT; };
+		A10000000000000000000047 /* Speech.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Speech.framework; path = System/Library/Frameworks/Speech.framework; sourceTree = SDKROOT; };
+		A10000000000000000000048 /* Translation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Translation.framework; path = System/Library/Frameworks/Translation.framework; sourceTree = SDKROOT; };
+		A10000000000000000000049 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A1000000000000000000000C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000050 /* AppKit.framework in Frameworks */,
+				A10000000000000000000051 /* AVFoundation.framework in Frameworks */,
+				A10000000000000000000052 /* CoreGraphics.framework in Frameworks */,
+				A10000000000000000000053 /* CoreMedia.framework in Frameworks */,
+				A10000000000000000000054 /* CoreServices.framework in Frameworks */,
+				A10000000000000000000055 /* NaturalLanguage.framework in Frameworks */,
+				A10000000000000000000056 /* ScreenCaptureKit.framework in Frameworks */,
+				A10000000000000000000057 /* Speech.framework in Frameworks */,
+				A10000000000000000000058 /* Translation.framework in Frameworks */,
+				A10000000000000000000059 /* SwiftUI.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A10000000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000005 /* Sources */,
+				A10000000000000000000020 /* Configurations */,
+				A10000000000000000000004 /* Frameworks */,
+				A10000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A10000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A1000000000000000000000E /* OfflineInterpreterApp.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000004 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000040 /* AppKit.framework */,
+				A10000000000000000000041 /* AVFoundation.framework */,
+				A10000000000000000000042 /* CoreGraphics.framework */,
+				A10000000000000000000043 /* CoreMedia.framework */,
+				A10000000000000000000044 /* CoreServices.framework */,
+				A10000000000000000000045 /* NaturalLanguage.framework */,
+				A10000000000000000000046 /* ScreenCaptureKit.framework */,
+				A10000000000000000000047 /* Speech.framework */,
+				A10000000000000000000048 /* Translation.framework */,
+				A10000000000000000000049 /* SwiftUI.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000005 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000006 /* OfflineInterpreterApp */,
+				A10000000000000000000007 /* OfflineInterpreterKit */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000006 /* OfflineInterpreterApp */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000010 /* OfflineInterpreterApp.swift */,
+				A10000000000000000000011 /* ContentView.swift */,
+				A10000000000000000000012 /* Info.plist */,
+			);
+			path = OfflineInterpreterApp;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000007 /* OfflineInterpreterKit */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000015 /* AppViewModel.swift */,
+				A10000000000000000000014 /* AudioCapture.swift */,
+				A10000000000000000000016 /* LanguageScorer.swift */,
+				A10000000000000000000017 /* LexiconOverlay.swift */,
+				A10000000000000000000013 /* Models.swift */,
+				A10000000000000000000018 /* OfflineReadinessService.swift */,
+				A10000000000000000000019 /* SpeechPlaybackService.swift */,
+				A1000000000000000000001A /* SpeechRecognitionManager.swift */,
+				A1000000000000000000001B /* TranslationPipeline.swift */,
+			);
+			path = OfflineInterpreterKit;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000020 /* Configurations */ = {
+			isa = PBXGroup;
+			children = (
+				A1000000000000000000001C /* Project-Debug.xcconfig */,
+				A1000000000000000000001D /* Project-Release.xcconfig */,
+				A1000000000000000000001E /* App-Debug.xcconfig */,
+				A1000000000000000000001F /* App-Release.xcconfig */,
+			);
+			path = Configurations;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A10000000000000000000009 /* OfflineInterpreterApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1000000000000000000000A /* Build configuration list for PBXNativeTarget "OfflineInterpreterApp" */;
+			buildPhases = (
+				A1000000000000000000000B /* Sources */,
+				A1000000000000000000000C /* Frameworks */,
+				A1000000000000000000000D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = OfflineInterpreterApp;
+			productName = OfflineInterpreterApp;
+			productReference = A1000000000000000000000E /* OfflineInterpreterApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A10000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					A10000000000000000000009 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = A10000000000000000000008 /* Build configuration list for PBXProject "OfflineInterpreterApp" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				"zh-Hans",
+			);
+			mainGroup = A10000000000000000000002;
+			productRefGroup = A10000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A10000000000000000000009 /* OfflineInterpreterApp */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A1000000000000000000000D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A1000000000000000000000B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000030 /* OfflineInterpreterApp.swift in Sources */,
+				A10000000000000000000031 /* ContentView.swift in Sources */,
+				A10000000000000000000032 /* Models.swift in Sources */,
+				A10000000000000000000033 /* AudioCapture.swift in Sources */,
+				A10000000000000000000034 /* AppViewModel.swift in Sources */,
+				A10000000000000000000035 /* LanguageScorer.swift in Sources */,
+				A10000000000000000000036 /* LexiconOverlay.swift in Sources */,
+				A10000000000000000000037 /* OfflineReadinessService.swift in Sources */,
+				A10000000000000000000038 /* SpeechPlaybackService.swift in Sources */,
+				A10000000000000000000039 /* SpeechRecognitionManager.swift in Sources */,
+				A1000000000000000000003A /* TranslationPipeline.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A10000000000000000000060 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A1000000000000000000001C /* Project-Debug.xcconfig */;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		A10000000000000000000061 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A1000000000000000000001D /* Project-Release.xcconfig */;
+			buildSettings = {
+			};
+			name = Release;
+		};
+		A10000000000000000000062 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A1000000000000000000001E /* App-Debug.xcconfig */;
+			buildSettings = {
+				DEVELOPMENT_TEAM = 967J4F9277;
+			};
+			name = Debug;
+		};
+		A10000000000000000000063 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A1000000000000000000001F /* App-Release.xcconfig */;
+			buildSettings = {
+				DEVELOPMENT_TEAM = 967J4F9277;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A10000000000000000000008 /* Build configuration list for PBXProject "OfflineInterpreterApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000060 /* Debug */,
+				A10000000000000000000061 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1000000000000000000000A /* Build configuration list for PBXNativeTarget "OfflineInterpreterApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000062 /* Debug */,
+				A10000000000000000000063 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A10000000000000000000001 /* Project object */;
+}

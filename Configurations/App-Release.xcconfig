@@ -1,0 +1,14 @@
+#include "Project-Release.xcconfig"
+
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = Apple Development
+DEVELOPMENT_TEAM = 967J4F9277
+COMBINE_HIDPI_IMAGES = YES
+ENABLE_APP_SANDBOX = NO
+GENERATE_INFOPLIST_FILE = NO
+INFOPLIST_FILE = Sources/OfflineInterpreterApp/Info.plist
+LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/../Frameworks
+PRODUCT_BUNDLE_IDENTIFIER = local.codex.offline-interpreter
+PRODUCT_NAME = $(TARGET_NAME)
+SUPPORTED_PLATFORMS = macosx
+SWIFT_EMIT_LOC_STRINGS = YES
