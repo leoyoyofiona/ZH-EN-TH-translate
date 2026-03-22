@@ -76,6 +76,24 @@ public final class OfflineReadinessService: @unchecked Sendable {
         )
     }
 
+    public func translationAvailability(for pair: TranslationPair) async -> AssetAvailability {
+        let availability = LanguageAvailability()
+        let status = await availability.status(from: pair.source.localeLanguage, to: pair.target.localeLanguage)
+        return mapTranslationStatus(status)
+    }
+
+    public func availableDiskSpaceBytes() -> Int64? {
+        do {
+            let values = try URL(fileURLWithPath: NSHomeDirectory()).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+            if let capacity = values.volumeAvailableCapacityForImportantUsage {
+                return capacity
+            }
+        } catch {
+            return nil
+        }
+        return nil
+    }
+
     public func openPrivacySettings(for audioSource: AudioSourceKind) {
         let rawURL: String
         switch audioSource {
@@ -93,6 +111,19 @@ public final class OfflineReadinessService: @unchecked Sendable {
     public func openSpeechSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition") {
             NSWorkspace.shared.open(url)
+        }
+    }
+
+    public func openLanguageRegionSettings() {
+        let candidates = [
+            "x-apple.systempreferences:com.apple.preference.language",
+            "x-apple.systempreferences:com.apple.Localization-Settings.extension"
+        ]
+
+        for rawURL in candidates {
+            if let url = URL(string: rawURL), NSWorkspace.shared.open(url) {
+                return
+            }
         }
     }
 

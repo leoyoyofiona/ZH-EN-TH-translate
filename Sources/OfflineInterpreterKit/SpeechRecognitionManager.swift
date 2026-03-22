@@ -14,9 +14,22 @@ public final class SpeechRecognitionManager: @unchecked Sendable {
     private var streams: [SupportedLanguage: SpeechRecognizerStream] = [:]
     private var hypotheses: [SupportedLanguage: RecognitionHypothesis] = [:]
     private var currentLanguage: SupportedLanguage?
+    private var lastAudioInputAt: Date?
+    private var lastRecognitionUpdateAt: Date?
+    private var lastRecoveryAt: Date?
 
     public init(lexiconOverlay: LexiconOverlay) {
         self.lexiconOverlay = lexiconOverlay
+    }
+
+    public func healthSnapshot(now: Date = .now) -> RecognitionHealthSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        return RecognitionHealthSnapshot(
+            audioInputAge: lastAudioInputAt.map { now.timeIntervalSince($0) },
+            recognitionUpdateAge: lastRecognitionUpdateAt.map { now.timeIntervalSince($0) },
+            recoveryAge: lastRecoveryAt.map { now.timeIntervalSince($0) }
+        )
     }
 
     public func start(mode: LanguageSelectionMode) throws {
@@ -46,11 +59,15 @@ public final class SpeechRecognitionManager: @unchecked Sendable {
         streams.removeAll()
         hypotheses.removeAll()
         currentLanguage = nil
+        lastAudioInputAt = nil
+        lastRecognitionUpdateAt = nil
+        lastRecoveryAt = nil
     }
 
     public func appendPCMBuffer(_ buffer: AVAudioPCMBuffer) {
         lock.lock()
         let activeStreams = Array(streams.values)
+        lastAudioInputAt = .now
         lock.unlock()
         activeStreams.forEach { $0.append(buffer) }
     }
@@ -58,12 +75,29 @@ public final class SpeechRecognitionManager: @unchecked Sendable {
     public func appendSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
         lock.lock()
         let activeStreams = Array(streams.values)
+        lastAudioInputAt = .now
         lock.unlock()
         activeStreams.forEach { $0.append(sampleBuffer) }
     }
 
     public func reconfigure(mode: LanguageSelectionMode) throws {
         try start(mode: mode)
+    }
+
+    public func recoverIfStalled(mode: LanguageSelectionMode, now: Date = .now) throws -> Bool {
+        lock.lock()
+        let recentAudio = lastAudioInputAt.map { now.timeIntervalSince($0) <= 2.0 } ?? false
+        let recognitionStale = lastRecognitionUpdateAt.map { now.timeIntervalSince($0) >= 4.0 } ?? true
+        let cooldownElapsed = lastRecoveryAt.map { now.timeIntervalSince($0) >= 3.0 } ?? true
+        let shouldRecover = recentAudio && recognitionStale && cooldownElapsed
+        if shouldRecover {
+            lastRecoveryAt = now
+        }
+        lock.unlock()
+
+        guard shouldRecover else { return false }
+        try start(mode: mode)
+        return true
     }
 
     private func candidateLanguages(for mode: LanguageSelectionMode) -> [SupportedLanguage] {
@@ -88,6 +122,7 @@ public final class SpeechRecognitionManager: @unchecked Sendable {
 
         if let selectedHypothesis {
             currentLanguage = selectedHypothesis.language
+            lastRecognitionUpdateAt = .now
             update = SpeechPipelineUpdate(
                 sourceLanguage: selectedHypothesis.language,
                 text: selectedHypothesis.text,
@@ -110,7 +145,23 @@ public final class SpeechRecognitionManager: @unchecked Sendable {
     }
 }
 
-private final class SpeechRecognizerStream {
+public struct RecognitionHealthSnapshot: Sendable {
+    public let audioInputAge: TimeInterval?
+    public let recognitionUpdateAge: TimeInterval?
+    public let recoveryAge: TimeInterval?
+
+    public var hasRecentAudioInput: Bool {
+        guard let audioInputAge else { return false }
+        return audioInputAge <= 2.0
+    }
+
+    public var recognitionIsStale: Bool {
+        guard let recognitionUpdateAge else { return true }
+        return recognitionUpdateAge >= 4.0
+    }
+}
+
+private final class SpeechRecognizerStream: @unchecked Sendable {
     private let language: SupportedLanguage
     private let recognizer: SFSpeechRecognizer
     private let prefersOnDeviceRecognition: Bool
@@ -123,6 +174,7 @@ private final class SpeechRecognizerStream {
     private var isStopped = false
     private var lastDeliveredText = ""
     private var lastDeliveredWasFinal = false
+    private var recoveryAttemptCount = 0
 
     init(
         language: SupportedLanguage,
@@ -158,6 +210,7 @@ private final class SpeechRecognizerStream {
         request = nil
         lastDeliveredText = ""
         lastDeliveredWasFinal = false
+        recoveryAttemptCount = 0
     }
 
     func append(_ buffer: AVAudioPCMBuffer) {
@@ -172,7 +225,7 @@ private final class SpeechRecognizerStream {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.requiresOnDeviceRecognition = prefersOnDeviceRecognition
-        request.addsPunctuation = true
+        request.addsPunctuation = language.addsPunctuationDuringRecognition
         request.contextualStrings = contextualStrings
         self.request = request
 
@@ -181,7 +234,11 @@ private final class SpeechRecognizerStream {
 
             if let error {
                 if !self.isStopped {
-                    self.onError(error)
+                    if self.shouldAutoRecover(from: error) {
+                        self.restartAfterTransientFailure()
+                    } else {
+                        self.onError(error)
+                    }
                 }
                 return
             }
@@ -211,6 +268,7 @@ private final class SpeechRecognizerStream {
                 receivedAt: .now,
                 averageSegmentConfidence: averageConfidence
             )
+            self.recoveryAttemptCount = 0
             self.lastDeliveredText = text
             self.lastDeliveredWasFinal = result.isFinal
             self.onHypothesis(hypothesis)
@@ -222,5 +280,42 @@ private final class SpeechRecognizerStream {
                 self.createTask()
             }
         }
+    }
+
+    private func restartAfterTransientFailure() {
+        guard !isStopped else { return }
+
+        task?.cancel()
+        task = nil
+        request = nil
+        recoveryAttemptCount = min(recoveryAttemptCount + 1, 4)
+
+        let delay = min(0.2 * Double(recoveryAttemptCount), 0.8)
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, !self.isStopped else { return }
+            self.createTask()
+        }
+    }
+
+    private func shouldAutoRecover(from error: Error) -> Bool {
+        let nsError = error as NSError
+        let lowered = [
+            nsError.domain,
+            nsError.localizedDescription,
+            nsError.localizedFailureReason ?? "",
+            nsError.localizedRecoverySuggestion ?? ""
+        ]
+        .joined(separator: " ")
+        .lowercased()
+
+        if lowered.contains("permission")
+            || lowered.contains("not authorized")
+            || lowered.contains("denied")
+            || lowered.contains("unsupported locale")
+            || lowered.contains("not available") {
+            return false
+        }
+
+        return true
     }
 }

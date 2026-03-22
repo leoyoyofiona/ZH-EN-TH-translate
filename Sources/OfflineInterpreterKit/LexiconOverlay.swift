@@ -2,36 +2,52 @@ import CoreServices
 import Foundation
 
 public final class LexiconOverlay: @unchecked Sendable {
-    private let protectedTerms: [String: [String]] = [
-        "Apple": ["Apple", "แอปเปิล", "苹果"],
-        "macOS": ["macOS", "แมคโอเอส", "macOS"],
-        "iPhone": ["iPhone", "ไอโฟน", "iPhone"],
-        "OpenAI": ["OpenAI", "OpenAI", "OpenAI"]
+    private let protectedTerms: [String: [SupportedLanguage: String]] = [
+        "Apple": [
+            .en: "Apple",
+            .th: "แอปเปิล",
+            .zhHans: "苹果",
+            .ru: "Эппл",
+            .it: "Apple"
+        ],
+        "macOS": [
+            .en: "macOS",
+            .th: "แมคโอเอส",
+            .zhHans: "macOS",
+            .ru: "macOS",
+            .it: "macOS"
+        ],
+        "iPhone": [
+            .en: "iPhone",
+            .th: "ไอโฟน",
+            .zhHans: "iPhone",
+            .ru: "айфон",
+            .it: "iPhone"
+        ],
+        "OpenAI": [
+            .en: "OpenAI",
+            .th: "OpenAI",
+            .zhHans: "OpenAI",
+            .ru: "OpenAI",
+            .it: "OpenAI"
+        ]
     ]
 
     public init() {}
 
     public func contextualStrings(for language: SupportedLanguage) -> [String] {
-        let languageIndex: Int
-        switch language {
-        case .en: languageIndex = 0
-        case .th: languageIndex = 1
-        case .zhHans: languageIndex = 2
-        case .ja, .fr, .de, .es, .ko: languageIndex = 0
-        }
-
         return protectedTerms.values.compactMap { terms in
-            guard terms.indices.contains(languageIndex) else { return nil }
-            return terms[languageIndex]
+            terms[language] ?? terms[.en]
         }
     }
 
     public func protectTerms(in translatedText: String, sourceText: String) -> String {
         var output = translatedText
         for variants in protectedTerms.values {
-            guard let canonical = variants.first else { continue }
-            if variants.contains(where: { sourceText.localizedCaseInsensitiveContains($0) }) {
-                for variant in variants where variant != canonical {
+            let knownTerms = Array(variants.values)
+            guard let canonical = variants[.en] ?? knownTerms.first else { continue }
+            if knownTerms.contains(where: { sourceText.localizedCaseInsensitiveContains($0) }) {
+                for variant in knownTerms where variant != canonical {
                     output = output.replacingOccurrences(of: variant, with: canonical)
                 }
             }

@@ -3,78 +3,53 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-VERSION_FILE="$ROOT/Configurations/Version.xcconfig"
 
-APP_DIR="$HOME/Applications/OfflineInterpreterApp.app"
-CONTENTS="$APP_DIR/Contents"
-MACOS_DIR="$CONTENTS/MacOS"
+APP_DISPLAY_NAME="多国语言同声翻译"
+SCHEME="OfflineInterpreterApp"
+PROJECT="$ROOT/OfflineInterpreterApp.xcodeproj"
+DERIVED_DATA="$ROOT/.xcodebuild/DerivedData"
+CONFIGURATION="${BUILD_CONFIGURATION:-Debug}"
+EXPECTED_TEAM_ID="967J4F9277"
+APP_DIR="$HOME/Applications/${APP_DISPLAY_NAME}.app"
+SOURCE_APP="$DERIVED_DATA/Build/Products/$CONFIGURATION/OfflineInterpreterApp.app"
 FORCE_REBUILD="${1:-}"
 
-SIGNING_IDENTITY="${CODE_SIGN_IDENTITY:-}"
-LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
-if [[ -z "$SIGNING_IDENTITY" ]]; then
-    SIGNING_IDENTITY="$(security find-identity -v -p codesigning "$LOGIN_KEYCHAIN" 2>/dev/null | awk '/"/ {print $2; exit}')"
-fi
+app_has_expected_signature() {
+    local app_path="$1"
+    [[ -d "$app_path" ]] || return 1
 
-MARKETING_VERSION="$(awk -F'= ' '/MARKETING_VERSION/ {print $2; exit}' "$VERSION_FILE" | tr -d '[:space:]')"
-BUILD_NUMBER="$(awk -F'= ' '/CURRENT_PROJECT_VERSION/ {print $2; exit}' "$VERSION_FILE" | tr -d '[:space:]')"
+    local signature_output
+    signature_output="$(codesign -dvv "$app_path" 2>&1 || true)"
+    grep -q "TeamIdentifier=$EXPECTED_TEAM_ID" <<<"$signature_output"
+}
 
-build_app() {
-    swift build
+build_signed_app() {
+    xcodebuild \
+        -project "$PROJECT" \
+        -scheme "$SCHEME" \
+        -configuration "$CONFIGURATION" \
+        -destination "platform=macOS" \
+        -derivedDataPath "$DERIVED_DATA" \
+        build >/tmp/offline-interpreter-xcodebuild.log
 
-    local bin_dir
-    bin_dir="$(swift build --show-bin-path)"
-    local bin="$bin_dir/OfflineInterpreterApp"
+    if ! app_has_expected_signature "$SOURCE_APP"; then
+        echo "Refusing to install unsigned or adhoc build." >&2
+        codesign -dvv "$SOURCE_APP" 2>&1 || true
+        exit 1
+    fi
 
+    pkill -f "$APP_DIR/Contents/MacOS/OfflineInterpreterApp" >/dev/null 2>&1 || true
     rm -rf "$APP_DIR"
-    mkdir -p "$MACOS_DIR"
-    cp "$bin" "$MACOS_DIR/OfflineInterpreterApp"
+    ditto "$SOURCE_APP" "$APP_DIR"
 
-    cat > "$CONTENTS/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleDevelopmentRegion</key>
-    <string>zh_CN</string>
-    <key>CFBundleDisplayName</key>
-    <string>OfflineInterpreterApp</string>
-    <key>CFBundleExecutable</key>
-    <string>OfflineInterpreterApp</string>
-    <key>CFBundleIdentifier</key>
-    <string>local.codex.offline-interpreter</string>
-    <key>CFBundleInfoDictionaryVersion</key>
-    <string>6.0</string>
-    <key>CFBundleName</key>
-    <string>OfflineInterpreterApp</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>${MARKETING_VERSION}</string>
-    <key>CFBundleVersion</key>
-    <string>${BUILD_NUMBER}</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>26.0</string>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>需要麦克风权限以执行本地离线同声传译。</string>
-    <key>NSSpeechRecognitionUsageDescription</key>
-    <string>需要语音识别权限以执行本地离线同声传译。</string>
-    <key>NSPrincipalClass</key>
-    <string>NSApplication</string>
-</dict>
-</plist>
-PLIST
-
-    if [[ -n "$SIGNING_IDENTITY" ]]; then
-        codesign --force --deep --keychain "$LOGIN_KEYCHAIN" --sign "$SIGNING_IDENTITY" --identifier local.codex.offline-interpreter "$APP_DIR" || \
-            codesign --force --deep --sign - --identifier local.codex.offline-interpreter "$APP_DIR"
-    else
-        codesign --force --deep --sign - --identifier local.codex.offline-interpreter "$APP_DIR"
+    if ! app_has_expected_signature "$APP_DIR"; then
+        echo "Installed app lost its Apple Development signature." >&2
+        exit 1
     fi
 }
 
-if [[ ! -d "$APP_DIR" || "$FORCE_REBUILD" == "--rebuild" ]]; then
-    build_app
+if [[ "$FORCE_REBUILD" == "--rebuild" || ! -d "$APP_DIR" ]] || ! app_has_expected_signature "$APP_DIR"; then
+    build_signed_app
 fi
 
 open "$APP_DIR"

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+@preconcurrency import Translation
 #if canImport(OfflineInterpreterKit)
 import OfflineInterpreterKit
 #endif
@@ -7,35 +8,98 @@ import OfflineInterpreterKit
 struct ContentView: View {
     @ObservedObject var viewModel: AppViewModel
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("windowPinned") private var keepWindowPinned = false
+    @State private var translationConfiguration: TranslationSession.Configuration?
+    @State private var activePreparationID: UUID?
 
     var body: some View {
         GeometryReader { geometry in
             let contentScale = windowScale(for: geometry.size)
+            let toolbarScale = toolbarScale(for: geometry.size)
 
-            ZStack {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(.regularMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .stroke(
-                                Color.white.opacity(colorScheme == .dark ? 0.12 : 0.28),
-                                lineWidth: 1
-                            )
-                    )
-                    .shadow(color: .black.opacity(colorScheme == .dark ? 0.26 : 0.12), radius: 28, x: 0, y: 16)
-
-                VStack(spacing: scaled(12, by: contentScale)) {
-                    controls(scale: contentScale)
-                    subtitles
-                    footer(scale: contentScale)
+            VStack(spacing: scaled(10, by: contentScale)) {
+                controls(scale: toolbarScale)
+                if let preparationStatusText = viewModel.preparationStatusText {
+                    translationPreparationBanner(text: preparationStatusText, scale: contentScale)
                 }
-                .padding(scaled(14, by: contentScale))
+                subtitles
+                footer(scale: contentScale)
             }
-            .padding(14)
+            .padding(scaled(12, by: contentScale))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(windowBackground)
         }
-        .frame(minWidth: 760, minHeight: 340)
-        .background(Color.clear)
-        .background(WindowAccessor())
+        .frame(minWidth: 920, minHeight: 300)
+        .background(windowBackground)
+        .background(WindowAccessor(isPinned: keepWindowPinned))
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                if keepWindowPinned {
+                    Button("取消置顶") {
+                        keepWindowPinned.toggle()
+                    }
+                } else {
+                    Button("置顶") {
+                        keepWindowPinned.toggle()
+                    }
+                }
+
+                Button("清空") {
+                    viewModel.clearSubtitles()
+                }
+
+                Menu("导出") {
+                    Button("导出 Word (.docx)") {
+                        viewModel.exportTranscript(as: .word)
+                    }
+                    Button("导出 TXT (.txt)") {
+                        viewModel.exportTranscript(as: .txt)
+                    }
+                    Button("导出 Markdown (.md)") {
+                        viewModel.exportTranscript(as: .markdown)
+                    }
+                }
+
+                Button(viewModel.startButtonTitle) {
+                    viewModel.startOrStop()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(viewModel.isRunning ? .red : .gray)
+                .disabled(!viewModel.canTriggerPrimaryAction)
+            }
+        }
+        .onChange(of: viewModel.translationPreparationRequest?.id) { _, _ in
+            guard let request = viewModel.translationPreparationRequest else {
+                translationConfiguration = nil
+                activePreparationID = nil
+                return
+            }
+
+            activePreparationID = request.id
+            translationConfiguration = TranslationSession.Configuration(
+                source: request.pair.source.localeLanguage,
+                target: request.pair.target.localeLanguage
+            )
+        }
+        .translationTask(translationConfiguration) { session in
+            let requestID = activePreparationID
+            do {
+                try await prepareTranslation(session)
+                await MainActor.run {
+                    guard requestID == activePreparationID else { return }
+                    translationConfiguration = nil
+                    activePreparationID = nil
+                    viewModel.completeTranslationPreparation()
+                }
+            } catch {
+                await MainActor.run {
+                    guard requestID == activePreparationID else { return }
+                    translationConfiguration = nil
+                    activePreparationID = nil
+                    viewModel.failTranslationPreparation(error)
+                }
+            }
+        }
         .alert("运行错误", isPresented: Binding(
             get: { viewModel.errorMessage != nil },
             set: { newValue in
@@ -52,132 +116,158 @@ struct ContentView: View {
         }
     }
 
+    private func prepareTranslation(_ session: TranslationSession) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await session.prepareTranslation()
+            }
+
+            group.addTask {
+                try await Task.sleep(for: .seconds(45))
+                throw TranslationPreparationTimeoutError()
+            }
+
+            _ = try await group.next()
+            group.cancelAll()
+        }
+    }
+
     private func controls(scale: CGFloat) -> some View {
-        VStack(spacing: scaled(10, by: scale)) {
-            HStack(spacing: scaled(12, by: scale)) {
-                Picker("音频", selection: $viewModel.audioSource) {
-                    Text("系统音频").tag(AudioSourceKind.systemAudio)
-                    Text("麦克风").tag(AudioSourceKind.microphone)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 190 * scale)
-                .onChange(of: viewModel.audioSource) { _, _ in
-                    viewModel.handleAudioSourceChanged()
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .center, spacing: scaled(12, by: scale)) {
+                inlineToolbarField(title: "音频", scale: scale) {
+                    Picker("", selection: $viewModel.audioSource) {
+                        Text("系统音频").tag(AudioSourceKind.systemAudio)
+                        Text("麦克风").tag(AudioSourceKind.microphone)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 210 * scale)
+                    .onChange(of: viewModel.audioSource) { _, _ in
+                        viewModel.handleAudioSourceChanged()
+                    }
                 }
 
-                compactMenuPicker(
-                    title: "源语言",
-                    selection: Binding(
-                        get: { viewModel.selectedSourceLanguage },
-                        set: { viewModel.configureSourceLanguage($0) }
-                    ),
-                    scale: scale
+                inlineToolbarField(title: "源", scale: scale) {
+                    compactMenuPicker(
+                        selection: Binding(
+                            get: { viewModel.selectedSourceLanguage },
+                            set: { viewModel.configureSourceLanguage($0) }
+                        ),
+                        width: 120 * scale
+                    )
+                }
+
+                inlineToolbarField(title: "目标", scale: scale) {
+                    compactMenuPicker(
+                        selection: Binding(
+                            get: { viewModel.targetLanguage },
+                            set: { viewModel.configureTargetLanguage($0) }
+                        ),
+                        disabledLanguage: viewModel.selectedSourceLanguage,
+                        width: 120 * scale
+                    )
+                }
+
+                inlineToolbarField(title: "原文色", scale: scale) {
+                    compactColorPicker(selection: $viewModel.sourceSubtitleColorStyle, width: 112 * scale)
+                }
+
+                inlineToolbarField(title: "译文色", scale: scale) {
+                    compactColorPicker(selection: $viewModel.translationSubtitleColorStyle, width: 112 * scale)
+                }
+
+                inlineFontSizeControl(
+                    title: "原文",
+                    selection: $viewModel.sourceFontSize,
+                    range: 14...34,
+                    width: 120 * scale
                 )
 
-                compactMenuPicker(
-                    title: "目标语言",
-                    selection: Binding(
-                        get: { viewModel.targetLanguage },
-                        set: { viewModel.configureTargetLanguage($0) }
-                    ),
-                    disabledLanguage: viewModel.selectedSourceLanguage,
-                    scale: scale
+                inlineFontSizeControl(
+                    title: "译文",
+                    selection: $viewModel.translationFontSize,
+                    range: 18...42,
+                    width: 120 * scale
                 )
-
-                Spacer(minLength: scaled(8, by: scale))
-
-                Button("清空") {
-                    viewModel.clearSubtitles()
-                }
-                .buttonStyle(.bordered)
-
-                Menu("导出") {
-                    Button("导出 Word (.docx)") {
-                        viewModel.exportTranscript(as: .word)
-                    }
-                    Button("导出 TXT (.txt)") {
-                        viewModel.exportTranscript(as: .txt)
-                    }
-                    Button("导出 Markdown (.md)") {
-                        viewModel.exportTranscript(as: .markdown)
-                    }
-                }
-
-                Button(viewModel.isRunning ? "停止" : "开始") {
-                    viewModel.startOrStop()
-                }
-                .buttonStyle(.borderedProminent)
             }
-
-            HStack(spacing: scaled(12, by: scale)) {
-                compactColorPicker(title: "原文颜色", selection: $viewModel.sourceSubtitleColorStyle, scale: scale)
-                compactColorPicker(title: "译文颜色", selection: $viewModel.translationSubtitleColorStyle, scale: scale)
-
-                Stepper(
-                    "原文 \(Int(viewModel.sourceFontSize))",
-                    value: $viewModel.sourceFontSize,
-                    in: 14...34,
-                    step: 1
-                )
-                .frame(width: 124 * scale)
-
-                Stepper(
-                    "译文 \(Int(viewModel.translationFontSize))",
-                    value: $viewModel.translationFontSize,
-                    in: 18...42,
-                    step: 1
-                )
-                .frame(width: 124 * scale)
-
-                Spacer()
-            }
+            .frame(maxWidth: .infinity, alignment: .center)
         }
         .controlSize(scale < 0.84 ? .small : .regular)
         .padding(.horizontal, scaled(14, by: scale))
-        .padding(.vertical, scaled(10, by: scale))
-        .background(panelBackground(cornerRadius: 18))
+        .padding(.vertical, scaled(9, by: scale))
+        .background(sectionBackground(cornerRadius: 14))
     }
 
-    private func compactMenuPicker(
+    private func inlineToolbarField<Content: View>(
         title: String,
-        selection: Binding<SupportedLanguage>,
-        disabledLanguage: SupportedLanguage? = nil,
-        scale: CGFloat
+        scale: CGFloat,
+        @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .center, spacing: scaled(6, by: scale)) {
             Text(title)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: max(11, 11 * scale), weight: .semibold))
                 .foregroundStyle(.secondary)
-
-            Picker(title, selection: selection) {
-                ForEach(SupportedLanguage.allCases) { language in
-                    Text(language.displayName)
-                        .tag(language)
-                        .disabled(language == disabledLanguage)
-                }
-            }
-            .pickerStyle(.menu)
-            .frame(width: 132 * scale)
+            content()
         }
     }
 
-    private func compactColorPicker(
-        title: String,
-        selection: Binding<SubtitleColorStyle>,
-        scale: CGFloat
+    private func compactMenuPicker(
+        selection: Binding<SupportedLanguage>,
+        disabledLanguage: SupportedLanguage? = nil,
+        width: CGFloat
     ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        Picker("", selection: selection) {
+            ForEach(SupportedLanguage.allCases) { language in
+                Text(language.displayName)
+                    .tag(language)
+                    .disabled(language == disabledLanguage)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .frame(width: width)
+    }
+
+    private func compactColorPicker(
+        selection: Binding<SubtitleColorStyle>,
+        width: CGFloat
+    ) -> some View {
+        Picker("", selection: selection) {
+            ForEach(SubtitleColorStyle.allCases) { style in
+                Text(style.displayName).tag(style)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .frame(width: width)
+    }
+
+    private func inlineFontSizeControl(
+        title: String,
+        selection: Binding<Double>,
+        range: ClosedRange<Double>,
+        width: CGFloat
+    ) -> some View {
+        HStack(alignment: .center, spacing: 6) {
             Text(title)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
 
-            Picker(title, selection: selection) {
-                ForEach(SubtitleColorStyle.allCases) { style in
-                    Text(style.displayName).tag(style)
+            HStack(spacing: 8) {
+                Button("-") {
+                    selection.wrappedValue = max(range.lowerBound, selection.wrappedValue - 1)
                 }
+                .buttonStyle(.bordered)
+                .disabled(selection.wrappedValue <= range.lowerBound)
+
+                Button("+") {
+                    selection.wrappedValue = min(range.upperBound, selection.wrappedValue + 1)
+                }
+                .buttonStyle(.bordered)
+                .disabled(selection.wrappedValue >= range.upperBound)
             }
-            .pickerStyle(.menu)
-            .frame(width: 116 * scale)
+            .frame(width: width, alignment: .leading)
         }
     }
 
@@ -206,6 +296,29 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private func translationPreparationBanner(text: String, scale: CGFloat) -> some View {
+        HStack(alignment: .center, spacing: scaled(10, by: scale)) {
+            ProgressView()
+                .controlSize(scale < 0.84 ? .small : .regular)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("正在准备语言资源")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(text)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Text("当前阶段只显示系统准备状态，macOS 不会提供下载百分比。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, scaled(14, by: scale))
+        .padding(.vertical, scaled(10, by: scale))
+        .background(sectionBackground(cornerRadius: 14))
+    }
+
     private func transcriptPane(
         title: String,
         segments: [TranslationSegment],
@@ -216,6 +329,7 @@ struct ContentView: View {
     ) -> some View {
         GeometryReader { geometry in
             let effectiveFontSize = adaptiveFontSize(base: fontSize, containerSize: geometry.size)
+            let contentSignature = transcriptSignature(for: segments, text: text)
 
             VStack(alignment: .leading, spacing: 10) {
                 Text(title)
@@ -223,8 +337,9 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
 
                 ScrollViewReader { proxy in
+                    let bottomAnchorID = "bottom-anchor"
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 12) {
                             if segments.isEmpty {
                                 Text(placeholder)
                                     .font(.system(size: effectiveFontSize, weight: .semibold))
@@ -245,73 +360,98 @@ struct ContentView: View {
                                         .textSelection(.enabled)
                                         .opacity(segment.isStable ? 1 : 0.76)
                                         .id(segment.id)
-                                }
+                                    }
                             }
+
+                            Color.clear
+                                .frame(height: 1)
+                                .id(bottomAnchorID)
                         }
+                        .id(contentSignature)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.trailing, 4)
                     }
                     .defaultScrollAnchor(.bottom)
                     .onAppear {
-                        scrollToBottom(in: proxy, segments: segments)
+                        scrollToBottom(in: proxy, bottomAnchorID: bottomAnchorID)
                     }
                     .onChange(of: viewModel.transcriptRevision) { _, _ in
-                        scrollToBottom(in: proxy, segments: segments)
+                        scrollToBottom(in: proxy, bottomAnchorID: bottomAnchorID)
+                    }
+                    .onChange(of: contentSignature) { _, _ in
+                        scrollToBottom(in: proxy, bottomAnchorID: bottomAnchorID)
                     }
                 }
             }
             .padding(14)
-            .background(panelBackground(cornerRadius: 20))
+            .background(sectionBackground(cornerRadius: 16))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func footer(scale: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                if viewModel.canOpenSettings {
-                    Button("打开权限设置") {
-                        viewModel.openRelevantSettings()
-                    }
-                    .buttonStyle(.borderless)
+        HStack(spacing: 10) {
+            if viewModel.canOpenSettings {
+                Button("打开权限设置") {
+                    viewModel.openRelevantSettings()
                 }
-
-                Text("输入：\(viewModel.audioSourceDisplayName)")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Text(viewModel.compactStatusText)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-
-                if viewModel.latencyMilliseconds > 0 {
-                    Text("· \(viewModel.latencyMilliseconds) ms")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
+                .buttonStyle(.borderless)
             }
 
-            Text(viewModel.translationDirectionStatusText)
-                .font(.system(size: 11))
+            if viewModel.needsManualTranslationDownload {
+                Button("下载翻译语言") {
+                    viewModel.openTranslationLanguageSettings()
+                }
+                .buttonStyle(.borderless)
+            }
+
+            Text("输入：\(viewModel.audioSourceDisplayName)")
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
 
-            Text(viewModel.sourceRecognitionStatusText)
+            Spacer()
+
+            Text(viewModel.compactStatusText)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            if viewModel.latencyMilliseconds > 0 {
+                Text("· \(viewModel.latencyMilliseconds) ms")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, scaled(14, by: scale))
-        .padding(.vertical, scaled(10, by: scale))
-        .background(panelBackground(cornerRadius: 18))
+        .padding(.vertical, scaled(7, by: scale))
+        .background(sectionBackground(cornerRadius: 14))
     }
 
-    private func scrollToBottom(in proxy: ScrollViewProxy, segments: [TranslationSegment]) {
-        guard let lastID = segments.last?.id else { return }
+    private func scrollToBottom(in proxy: ScrollViewProxy, bottomAnchorID: String) {
         DispatchQueue.main.async {
-            proxy.scrollTo(lastID, anchor: .bottom)
+            proxy.scrollTo(bottomAnchorID, anchor: .bottom)
         }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+            proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+        }
+    }
+
+    private func transcriptSignature(
+        for segments: [TranslationSegment],
+        text: KeyPath<TranslationSegment, String>
+    ) -> String {
+        segments
+            .map { segment in
+                "\(segment.id.uuidString)|\(segment.isStable ? 1 : 0)|\(segment[keyPath: text])"
+            }
+            .joined(separator: "\n")
     }
 
     private var sourceColor: Color {
@@ -371,39 +511,57 @@ struct ContentView: View {
     private func adaptiveFontSize(base: Double, containerSize: CGSize) -> Double {
         let widthScale = containerSize.width / 520
         let heightScale = containerSize.height / 320
-        let scale = min(max(min(widthScale, heightScale), 0.72), 1.35)
+        let scale = min(max(min(widthScale, heightScale), 0.78), 1.32)
         return max(12, base * scale)
     }
 
     private func windowScale(for size: CGSize) -> CGFloat {
-        let widthScale = size.width / 1180
-        let heightScale = size.height / 560
-        return min(max(min(widthScale, heightScale), 0.72), 1.22)
+        let widthScale = size.width / 1100
+        let heightScale = size.height / 620
+        return min(max(min(widthScale, heightScale), 0.8), 1.2)
+    }
+
+    private func toolbarScale(for size: CGSize) -> CGFloat {
+        let widthScale = size.width / 1280
+        return min(max(widthScale, 0.58), 1.0)
     }
 
     private func scaled(_ value: CGFloat, by scale: CGFloat) -> CGFloat {
         value * scale
     }
 
-    private func panelBackground(cornerRadius: CGFloat) -> some View {
+    private var windowBackground: some View {
+        Color(nsColor: .windowBackgroundColor)
+    }
+
+    private func sectionBackground(cornerRadius: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(.thinMaterial)
+            .fill(Color(nsColor: .controlBackgroundColor))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(
-                        Color.white.opacity(colorScheme == .dark ? 0.08 : 0.22),
+                        Color(nsColor: .separatorColor).opacity(colorScheme == .dark ? 0.85 : 0.55),
                         lineWidth: 1
                     )
             )
     }
+
+}
+
+private struct TranslationPreparationTimeoutError: LocalizedError {
+    var errorDescription: String? {
+        "语言资源准备超时。系统在 45 秒内没有完成下载准备，通常是系统下载未开始、网络不可用，或系统确认框没有出现。请保持联网后重试。"
+    }
 }
 
 private struct WindowAccessor: NSViewRepresentable {
+    let isPinned: Bool
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         DispatchQueue.main.async {
             guard let window = view.window else { return }
-            OverlayWindowConfigurator.configure(window: window)
+            OverlayWindowConfigurator.configure(window: window, isPinned: isPinned)
         }
         return view
     }
@@ -411,7 +569,7 @@ private struct WindowAccessor: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async {
             guard let window = nsView.window else { return }
-            OverlayWindowConfigurator.configure(window: window)
+            OverlayWindowConfigurator.configure(window: window, isPinned: isPinned)
         }
     }
 }
@@ -419,36 +577,41 @@ private struct WindowAccessor: NSViewRepresentable {
 @MainActor
 private enum OverlayWindowConfigurator {
     private static var configuredWindows = Set<ObjectIdentifier>()
+    private static var positionedWindows = Set<ObjectIdentifier>()
 
-    static func configure(window: NSWindow) {
+    static func configure(window: NSWindow, isPinned: Bool) {
         let identifier = ObjectIdentifier(window)
-        guard !configuredWindows.contains(identifier) else { return }
-        configuredWindows.insert(identifier)
+        if !configuredWindows.contains(identifier) {
+            configuredWindows.insert(identifier)
 
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        if #available(macOS 11.0, *) {
-            window.titlebarSeparatorStyle = .none
+            window.title = "多国语言同声翻译"
+            window.titleVisibility = .visible
+            window.titlebarAppearsTransparent = false
+            if #available(macOS 11.0, *) {
+                window.titlebarSeparatorStyle = .automatic
+                window.toolbarStyle = .unifiedCompact
+            }
+            window.isOpaque = true
+            window.backgroundColor = .windowBackgroundColor
+            window.hasShadow = true
+            window.styleMask.insert(.resizable)
+            window.styleMask.insert(.miniaturizable)
+            window.styleMask.insert(.closable)
+            window.styleMask.insert(.titled)
+            window.minSize = NSSize(width: 920, height: 300)
         }
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.hasShadow = true
-        window.level = .floating
-        window.collectionBehavior.insert(.canJoinAllSpaces)
-        window.collectionBehavior.insert(.fullScreenAuxiliary)
-        window.styleMask.insert(.resizable)
-        window.styleMask.insert(.miniaturizable)
-        window.styleMask.insert(.closable)
-        window.styleMask.insert(.titled)
-        window.isMovableByWindowBackground = true
-        window.minSize = NSSize(width: 760, height: 340)
 
-        if let screen = window.screen ?? NSScreen.main {
-            let width: CGFloat = 1180
-            let height: CGFloat = 560
+        window.level = isPinned ? .floating : .normal
+        window.isMovableByWindowBackground = true
+
+        if !positionedWindows.contains(identifier),
+           let screen = window.screen ?? NSScreen.main {
+            positionedWindows.insert(identifier)
+            let width: CGFloat = 1040
+            let height: CGFloat = 430
             let origin = CGPoint(
                 x: screen.frame.midX - width / 2,
-                y: screen.visibleFrame.minY + 36
+                y: screen.frame.midY - height / 2 - 80
             )
             window.setFrame(CGRect(origin: origin, size: CGSize(width: width, height: height)), display: true)
         }

@@ -49,8 +49,14 @@ public final class TranslationPipeline {
         }
 
         let session = try await session(for: pair)
-        let response = try await session.translate(request.sourceText)
-        let protectedText = lexiconOverlay.protectTerms(in: response.targetText, sourceText: request.sourceText)
+        let translatedText = try await translateText(
+            request.sourceText,
+            with: session,
+            pair: pair,
+            timeout: timeout(for: request.sourceText),
+            allowRetry: true
+        )
+        let protectedText = lexiconOverlay.protectTerms(in: translatedText, sourceText: request.sourceText)
         storeCachedTranslation(protectedText, for: cacheKey)
 
         return TranslationResult(
@@ -84,9 +90,58 @@ public final class TranslationPipeline {
             resultCache.removeValue(forKey: oldest)
         }
     }
+
+    private func translateText(
+        _ sourceText: String,
+        with translatorSession: TranslationSession,
+        pair: TranslationPair,
+        timeout: Duration,
+        allowRetry: Bool
+    ) async throws -> String {
+        do {
+            return try await withThrowingTaskGroup(of: String.self) { group in
+                group.addTask {
+                    let response = try await translatorSession.translate(sourceText)
+                    return response.targetText
+                }
+
+                group.addTask {
+                    try await Task.sleep(for: timeout)
+                    throw TranslationTimeoutError()
+                }
+
+                let translatedText = try await group.next() ?? ""
+                group.cancelAll()
+                return translatedText
+            }
+        } catch is TranslationTimeoutError where allowRetry {
+            sessionCache.removeValue(forKey: pair)
+            let freshSession = try await session(for: pair)
+            return try await translateText(
+                sourceText,
+                with: freshSession,
+                pair: pair,
+                timeout: .seconds(4),
+                allowRetry: false
+            )
+        }
+    }
+
+    private func timeout(for sourceText: String) -> Duration {
+        switch sourceText.count {
+        case ..<40:
+            return .seconds(1.6)
+        case ..<120:
+            return .seconds(2.2)
+        default:
+            return .seconds(3)
+        }
+    }
 }
 
 private struct CacheKey: Hashable {
     let pair: TranslationPair
     let sourceText: String
 }
+
+private struct TranslationTimeoutError: Error {}

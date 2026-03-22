@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import AppKit
 import UniformTypeIdentifiers
+@preconcurrency import Translation
 
 @MainActor
 public final class AppViewModel: ObservableObject {
@@ -25,6 +26,9 @@ public final class AppViewModel: ObservableObject {
     @Published public private(set) var errorMessage: String?
     @Published public private(set) var isRunning = false
     @Published public private(set) var transcriptRevision = 0
+    @Published public private(set) var translationPreparationRequest: TranslationPreparationRequest?
+    @Published public private(set) var preparingTranslationPair: TranslationPair?
+    @Published public private(set) var isPreparingTranslationResources = false
 
     private let launchDemoSnapshot: Bool
 
@@ -37,13 +41,20 @@ public final class AppViewModel: ObservableObject {
     private var activeCapture: AudioCaptureController?
     private var translationTask: Task<Void, Never>?
     private var silenceWatchdogTask: Task<Void, Never>?
+    private var recognitionHealthTask: Task<Void, Never>?
     private var currentRevision = 0
     private var currentUtteranceStartedAt: Date?
     private var lastSpeechUpdate: SpeechPipelineUpdate?
     private var lastScheduledSignature: ScheduledSignature?
     private var hasAttemptedAutoStart = false
     private var cancellables: Set<AnyCancellable> = []
-    private let maxStoredSegments = 240
+    private let maxStoredSegments = 360
+    private let maxDisplayedSegments = 72
+    private var shouldResumeStartAfterTranslationPreparation = false
+    private let minimumDiskSpaceForTranslationDownloadBytes: Int64 = 1_000_000_000
+    private var lastTranscriptMutationAt = Date()
+    private var lastPipelineRecoveryAt: Date?
+    private var committedSourcePrefix = ""
 
     public init(launchDemoSnapshot: Bool = false) {
         self.launchDemoSnapshot = launchDemoSnapshot
@@ -103,18 +114,17 @@ public final class AppViewModel: ObservableObject {
     }
 
     public var displayedSegments: [TranslationSegment] {
-        var combined = segments
-        if let liveSegment {
-            if let index = combined.firstIndex(where: { $0.id == liveSegment.id }) {
-                combined[index] = liveSegment
-            } else {
-                combined.append(liveSegment)
-            }
+        let combined = TranscriptSegmentReducer.composeDisplaySegments(stableSegments: segments, liveSegment: liveSegment)
+        if combined.count > maxDisplayedSegments {
+            return Array(combined.suffix(maxDisplayedSegments))
         }
         return combined
     }
 
     public var compactStatusText: String {
+        if let preparationStatusText {
+            return preparationStatusText
+        }
         if let permissionIssue = permissionBlockingReason {
             return permissionIssue
         }
@@ -130,12 +140,28 @@ public final class AppViewModel: ObservableObject {
         case .installed:
             return "\(selectedSourceLanguage.displayName) -> \(targetLanguage.displayName)：当前机器已支持离线翻译。"
         case .supported:
-            return "\(selectedSourceLanguage.displayName) -> \(targetLanguage.displayName)：系统支持该语言对，但可能需要先准备语言资源。"
+            return "\(selectedSourceLanguage.displayName) -> \(targetLanguage.displayName)：系统支持该语言对，首次使用会提示下载离线翻译资源。"
         case .unsupported:
             return "\(selectedSourceLanguage.displayName) -> \(targetLanguage.displayName)：当前系统不支持该语言对。"
         case .unknown:
             return "\(selectedSourceLanguage.displayName) -> \(targetLanguage.displayName)：正在检查系统翻译能力。"
         }
+    }
+
+    public var startButtonTitle: String {
+        if isPreparingTranslationResources {
+            return "准备资源中…"
+        }
+        return isRunning ? "停止" : "开始"
+    }
+
+    public var canTriggerPrimaryAction: Bool {
+        !isPreparingTranslationResources || isRunning
+    }
+
+    public var preparationStatusText: String? {
+        guard isPreparingTranslationResources, let pair = preparingTranslationPair else { return nil }
+        return "正在为 \(pair.source.displayName) -> \(pair.target.displayName) 准备离线翻译资源。macOS 不提供下载百分比；若弹出系统确认，请选择允许。"
     }
 
     public var sourceRecognitionStatusText: String {
@@ -174,6 +200,11 @@ public final class AppViewModel: ObservableObject {
         permissionBlockingReason != nil
     }
 
+    public var needsManualTranslationDownload: Bool {
+        let pair = TranslationPair(source: selectedSourceLanguage, target: targetLanguage)
+        return readinessReport?.translationAvailability[pair] == .supported
+    }
+
     public func refreshReadiness() async {
         runState = .checkingReadiness
         let report = await readinessService.checkReadiness(
@@ -192,6 +223,8 @@ public final class AppViewModel: ObservableObject {
             statusMessage = permissionIssue
         } else if let firstReason = report.blockingReasons.first {
             statusMessage = firstReason
+        } else if report.translationAvailability[TranslationPair(source: selectedSourceLanguage, target: targetLanguage)] == .supported {
+            statusMessage = "\(selectedSourceLanguage.displayName) 到 \(targetLanguage.displayName) 首次使用会提示下载离线翻译资源。"
         } else if report.onDeviceRecognition[selectedSourceLanguage] == true {
             statusMessage = "离线资源检查通过。"
         } else {
@@ -224,7 +257,6 @@ public final class AppViewModel: ObservableObject {
     public func handleAudioSourceChanged() {
         guard !launchDemoSnapshot else { return }
         Task {
-            await readinessService.requestMissingPermissions(for: audioSource)
             await refreshReadiness()
             if isRunning {
                 await restartPipeline(resetSegments: false)
@@ -235,6 +267,7 @@ public final class AppViewModel: ObservableObject {
     public func handleLanguageModeChanged() {
         guard !launchDemoSnapshot else { return }
         Task {
+            cancelTranslationPreparation()
             await refreshReadiness()
             if isRunning {
                 await restartPipeline(resetSegments: false)
@@ -245,9 +278,16 @@ public final class AppViewModel: ObservableObject {
     public func handleTargetLanguageChanged() {
         guard !launchDemoSnapshot else { return }
         Task {
+            cancelTranslationPreparation()
             await refreshReadiness()
+            let pair = TranslationPair(source: selectedSourceLanguage, target: targetLanguage)
+            if readinessReport?.translationAvailability[pair] == .supported {
+                statusMessage = "切换到 \(selectedSourceLanguage.displayName) -> \(targetLanguage.displayName) 后，点击开始时系统会提示下载离线翻译资源。"
+                return
+            }
             if let lastSpeechUpdate {
-                scheduleTranslation(for: lastSpeechUpdate, isStable: lastSpeechUpdate.isStable)
+                currentRevision += 1
+                scheduleTranslationPlan(for: lastSpeechUpdate)
             }
         }
     }
@@ -262,12 +302,46 @@ public final class AppViewModel: ObservableObject {
         readinessService.openPrivacySettings(for: audioSource)
     }
 
+    public func openTranslationLanguageSettings() {
+        readinessService.openLanguageRegionSettings()
+    }
+
     public func dictionaryDefinition(for token: String) -> String? {
         lexiconOverlay.dictionaryDefinition(for: token)
     }
 
     public func dismissError() {
         errorMessage = nil
+    }
+
+    public func completeTranslationPreparation() {
+        let shouldResume = shouldResumeStartAfterTranslationPreparation
+        shouldResumeStartAfterTranslationPreparation = false
+        let pair = preparingTranslationPair ?? TranslationPair(source: selectedSourceLanguage, target: targetLanguage)
+
+        Task {
+            statusMessage = "正在确认 \(pair.source.displayName) -> \(pair.target.displayName) 的离线翻译资源是否已就绪。"
+            let availability = await waitForInstalledTranslation(for: pair, timeout: 20)
+            resetTranslationPreparationState()
+            if availability == .installed {
+                statusMessage = "\(pair.source.displayName) 到 \(pair.target.displayName) 的离线翻译资源已就绪。"
+                if shouldResume, !isRunning {
+                    await start()
+                }
+            } else if availability == .supported {
+                runState = .idle
+                statusMessage = "\(pair.source.displayName) 到 \(pair.target.displayName) 的离线翻译资源仍未完成下载。请允许系统下载后再点开始。"
+            } else {
+                runState = .error
+                errorMessage = "\(pair.source.displayName) 到 \(pair.target.displayName) 的离线翻译资源仍不可用。"
+            }
+        }
+    }
+
+    public func failTranslationPreparation(_ error: Error) {
+        shouldResumeStartAfterTranslationPreparation = false
+        resetTranslationPreparationState()
+        present(error: error)
     }
 
     public func loadDemoSnapshot(sourceLanguage: SupportedLanguage? = nil, targetLanguage: SupportedLanguage? = nil) {
@@ -285,7 +359,7 @@ public final class AppViewModel: ObservableObject {
         statusMessage = "演示模式：展示多语种原文与译文界面。"
         segments = demoSegments(sourceLanguage: demoSource, targetLanguage: demoTarget)
         liveSegment = nil
-        transcriptRevision += 1
+        markTranscriptChanged()
     }
 
     public func clearSubtitles() {
@@ -294,12 +368,13 @@ public final class AppViewModel: ObservableObject {
         currentUtteranceStartedAt = nil
         lastSpeechUpdate = nil
         lastScheduledSignature = nil
-        transcriptRevision += 1
+        committedSourcePrefix = ""
+        markTranscriptChanged()
         statusMessage = "已清空当前字幕。"
     }
 
     public func exportTranscript(as format: TranscriptExportFormat) {
-        let exportSegments = displayedSegments
+        let exportSegments = TranscriptSegmentReducer.coalesce(segments)
         guard !exportSegments.isEmpty else {
             errorMessage = "当前没有可导出的原文和译文。"
             return
@@ -336,26 +411,20 @@ public final class AppViewModel: ObservableObject {
             return
         }
 
+        let pair = TranslationPair(source: selectedSourceLanguage, target: targetLanguage)
+        if readinessReport?.translationAvailability[pair] == .supported {
+            let message = manualTranslationDownloadMessage(for: pair)
+            shouldResumeStartAfterTranslationPreparation = false
+            resetTranslationPreparationState()
+            errorMessage = message
+            statusMessage = message
+            runState = .blocked
+            return
+        }
+
         do {
-            let capture: AudioCaptureController = switch audioSource {
-            case .microphone: MicrophoneAudioCapture()
-            case .systemAudio: SystemAudioCapture()
-            }
-
-            capture.onPCMBuffer = { [weak self] buffer in
-                self?.speechRecognition.appendPCMBuffer(buffer)
-            }
-            capture.onSampleBuffer = { [weak self] sampleBuffer in
-                self?.speechRecognition.appendSampleBuffer(sampleBuffer)
-            }
-
-            try speechRecognition.start(mode: languageMode)
-            await translationPipeline.prepare(source: selectedSourceLanguage, target: targetLanguage)
-            try await capture.start()
-            activeCapture = capture
-            isRunning = true
-            runState = .listening
-            statusMessage = audioSource == .microphone ? "正在监听麦克风。" : "正在监听系统音频。"
+            try await activateStreamingPipeline(markRunning: true)
+            startRecognitionHealthMonitor()
         } catch {
             present(error: error)
             await stop()
@@ -365,6 +434,7 @@ public final class AppViewModel: ObservableObject {
     private func stop() async {
         translationTask?.cancel()
         silenceWatchdogTask?.cancel()
+        recognitionHealthTask?.cancel()
         speechRecognition.stop()
         await activeCapture?.stop()
         activeCapture = nil
@@ -374,6 +444,8 @@ public final class AppViewModel: ObservableObject {
         currentUtteranceStartedAt = nil
         lastSpeechUpdate = nil
         lastScheduledSignature = nil
+        committedSourcePrefix = ""
+        markTranscriptChanged()
         await refreshReadiness()
         statusMessage = readinessReport?.blockingReasons.first ?? "已停止。"
     }
@@ -386,27 +458,58 @@ public final class AppViewModel: ObservableObject {
         await start()
     }
 
+    private func startRecognitionHealthMonitor() {
+        recognitionHealthTask?.cancel()
+        recognitionHealthTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(2))
+                } catch {
+                    return
+                }
+
+                guard let self else { return }
+                guard self.isRunning else { continue }
+
+                do {
+                    let now = Date()
+                    let snapshot = self.speechRecognition.healthSnapshot(now: now)
+                    let recovered = try self.speechRecognition.recoverIfStalled(mode: self.languageMode, now: now)
+                    if recovered {
+                        await MainActor.run {
+                            self.statusMessage = "识别链路已自动恢复。"
+                        }
+                        continue
+                    }
+
+                    let transcriptStale = now.timeIntervalSince(self.lastTranscriptMutationAt) >= 6
+                    let pipelineRecoveryCooldownElapsed = self.lastPipelineRecoveryAt.map { now.timeIntervalSince($0) >= 8 } ?? true
+                    if snapshot.hasRecentAudioInput,
+                       let recognitionUpdateAge = snapshot.recognitionUpdateAge,
+                       recognitionUpdateAge >= 8,
+                       transcriptStale,
+                       pipelineRecoveryCooldownElapsed {
+                        self.lastPipelineRecoveryAt = now
+                        await self.recoverStreamingPipeline()
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.present(error: error)
+                    }
+                }
+            }
+        }
+    }
+
     private func prepareForOverlayMode() async {
         guard !launchDemoSnapshot else { return }
-        await readinessService.requestMissingPermissions(for: audioSource)
         await refreshReadiness()
-
-        guard !hasAttemptedAutoStart else { return }
         hasAttemptedAutoStart = true
-
-        if readinessReport?.isReady == true {
-            await start()
-        }
     }
 
     private func handleAppBecameActive() async {
         guard !launchDemoSnapshot else { return }
         await refreshReadiness()
-
-        guard !isRunning else { return }
-        guard readinessReport?.isReady == true else { return }
-
-        await start()
     }
 
     private func handleSpeechUpdate(_ update: SpeechPipelineUpdate) {
@@ -423,23 +526,30 @@ public final class AppViewModel: ObservableObject {
         }
 
         currentRevision += 1
-        scheduleTranslation(for: update, isStable: update.isStable)
+        scheduleTranslationPlan(for: update)
         scheduleSilenceWatchdog(after: silenceWatchdogDelay(for: update), from: update)
     }
 
-    private func scheduleTranslation(for update: SpeechPipelineUpdate, isStable: Bool) {
+    private func scheduleTranslationPlan(for update: SpeechPipelineUpdate) {
+        let plan = makeTranslationPlan(from: update)
         let revision = currentRevision
         translationTask?.cancel()
+        let signatureText = [
+            plan.stableCommittedText ?? "",
+            plan.liveUpdate?.text ?? ""
+        ]
+        .joined(separator: "|")
         lastScheduledSignature = ScheduledSignature(
             sourceLanguage: update.sourceLanguage,
-            text: update.text,
-            isStable: isStable
+            text: signatureText,
+            isStable: update.isStable
         )
         translationTask = Task { [weak self] in
             do {
-                try await Task.sleep(for: self?.translationDebounce(for: update, isStable: isStable) ?? .milliseconds(80))
+                let debounceSource = plan.liveUpdate ?? update
+                try await Task.sleep(for: self?.translationDebounce(for: debounceSource, isStable: update.isStable) ?? .milliseconds(80))
                 guard !Task.isCancelled else { return }
-                await self?.performTranslation(for: update, revision: revision, isStable: isStable)
+                await self?.execute(plan: plan, revision: revision, originalUpdate: update)
             } catch {
                 return
             }
@@ -467,7 +577,7 @@ public final class AppViewModel: ObservableObject {
                         isStable: true,
                         receivedAt: .now
                     )
-                    self.scheduleTranslation(for: forcedStableUpdate, isStable: true)
+                    self.scheduleTranslationPlan(for: forcedStableUpdate)
                 }
             } catch {
                 return
@@ -475,8 +585,60 @@ public final class AppViewModel: ObservableObject {
         }
     }
 
-    private func performTranslation(for update: SpeechPipelineUpdate, revision: Int, isStable: Bool) async {
+    private func execute(
+        plan: TranslationPlan,
+        revision: Int,
+        originalUpdate: SpeechPipelineUpdate
+    ) async {
+        if let committedPrefix = plan.newCommittedPrefix {
+            committedSourcePrefix = committedPrefix
+        }
+
+        if let stableCommittedText = plan.stableCommittedText {
+            let stableUpdate = SpeechPipelineUpdate(
+                sourceLanguage: originalUpdate.sourceLanguage,
+                text: stableCommittedText,
+                confidence: originalUpdate.confidence,
+                isStable: true,
+                receivedAt: originalUpdate.receivedAt
+            )
+            await performTranslation(
+                for: stableUpdate,
+                revision: revision,
+                isStable: true,
+                preserveStreamingState: !originalUpdate.isStable
+            )
+        }
+
+        if originalUpdate.isStable {
+            committedSourcePrefix = ""
+        }
+
+        if let liveUpdate = plan.liveUpdate {
+            await performTranslation(for: liveUpdate, revision: revision, isStable: false)
+        } else if !originalUpdate.isStable {
+            liveSegment = nil
+            markTranscriptChanged()
+        }
+    }
+
+    private func performTranslation(
+        for update: SpeechPipelineUpdate,
+        revision: Int,
+        isStable: Bool,
+        preserveStreamingState: Bool = false
+    ) async {
         guard !update.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let pair = TranslationPair(source: update.sourceLanguage, target: targetLanguage)
+        if readinessReport?.translationAvailability[pair] == .supported {
+            let message = manualTranslationDownloadMessage(for: pair)
+            shouldResumeStartAfterTranslationPreparation = false
+            resetTranslationPreparationState()
+            errorMessage = message
+            statusMessage = message
+            runState = .blocked
+            return
+        }
         runState = .translating
         let startedAt = currentUtteranceStartedAt ?? update.receivedAt
 
@@ -494,7 +656,7 @@ public final class AppViewModel: ObservableObject {
 
             latencyMilliseconds = Int(result.completedAt.timeIntervalSince(update.receivedAt) * 1000)
             let segment = TranslationSegment(
-                id: liveSegment?.id ?? UUID(),
+                id: isStable ? UUID() : (liveSegment?.id ?? UUID()),
                 sourceLanguage: result.sourceLanguage,
                 targetLanguage: result.targetLanguage,
                 sourceText: result.sourceText,
@@ -505,18 +667,20 @@ public final class AppViewModel: ObservableObject {
             )
 
             if isStable {
-                segments.append(segment)
-                if segments.count > maxStoredSegments {
-                    segments = Array(segments.suffix(maxStoredSegments))
-                }
+                commitStableSegment(segment)
                 liveSegment = nil
-                currentUtteranceStartedAt = nil
-                lastSpeechUpdate = nil
+                if !preserveStreamingState {
+                    currentUtteranceStartedAt = nil
+                    lastSpeechUpdate = nil
+                    committedSourcePrefix = ""
+                }
                 statusMessage = "已完成一段离线翻译。"
-                transcriptRevision += 1
-                if speakTranslations {
+                markTranscriptChanged()
+                if speakTranslations && !preserveStreamingState {
                     playbackService.speak(result.translatedText, language: result.targetLanguage)
                     runState = .speaking
+                } else if preserveStreamingState {
+                    runState = .translating
                 } else {
                     runState = .listening
                 }
@@ -524,7 +688,7 @@ public final class AppViewModel: ObservableObject {
                 liveSegment = segment
                 runState = .translating
                 statusMessage = "正在滚动翻译。"
-                transcriptRevision += 1
+                markTranscriptChanged()
             }
         } catch {
             present(error: error)
@@ -532,39 +696,64 @@ public final class AppViewModel: ObservableObject {
     }
 
     private func translationDebounce(for update: SpeechPipelineUpdate, isStable: Bool) -> Duration {
+        let multiplier = recognitionSpeedMultiplier(for: update.sourceLanguage)
         if isStable {
-            return .milliseconds(8)
+            return scaledDuration(milliseconds: 8, multiplier: multiplier)
         }
 
         let punctuation = CharacterSet(charactersIn: ".!?。！？,，;；、")
         let lastScalar = update.text.unicodeScalars.last
         if let lastScalar, punctuation.contains(lastScalar) {
-            return .milliseconds(20)
+            return scaledDuration(milliseconds: 20, multiplier: multiplier)
         }
 
         if update.text.count < 14 {
-            return .milliseconds(28)
+            return scaledDuration(milliseconds: 28, multiplier: multiplier)
         }
 
         if update.text.count < 42 {
-            return .milliseconds(42)
+            return scaledDuration(milliseconds: 42, multiplier: multiplier)
         }
 
-        return .milliseconds(56)
+        return scaledDuration(milliseconds: 56, multiplier: multiplier)
     }
 
     private func silenceWatchdogDelay(for update: SpeechPipelineUpdate) -> Double {
+        let multiplier = stabilityDelayMultiplier(for: update.sourceLanguage)
         let punctuation = CharacterSet(charactersIn: ".!?。！？,，;；、")
         if let lastScalar = update.text.unicodeScalars.last, punctuation.contains(lastScalar) {
-            return 0.18
+            return max(0.14, 0.18 * multiplier)
         }
         if update.text.count < 12 {
-            return 0.22
+            return max(0.16, 0.22 * multiplier)
         }
         if update.text.count < 24 {
-            return 0.28
+            return max(0.2, 0.28 * multiplier)
         }
-        return 0.34
+        return max(0.24, 0.34 * multiplier)
+    }
+
+    private func recognitionSpeedMultiplier(for language: SupportedLanguage) -> Double {
+        switch language {
+        case .ru, .it, .ja, .fr, .de, .es, .ko:
+            return 0.72
+        case .zhHans, .en, .th:
+            return 1.0
+        }
+    }
+
+    private func stabilityDelayMultiplier(for language: SupportedLanguage) -> Double {
+        switch language {
+        case .ru, .it, .ja, .fr, .de, .es, .ko:
+            return 2.0
+        case .zhHans, .en, .th:
+            return 1.0
+        }
+    }
+
+    private func scaledDuration(milliseconds: Int, multiplier: Double) -> Duration {
+        let adjusted = max(Int((Double(milliseconds) * multiplier).rounded()), 6)
+        return .milliseconds(adjusted)
     }
 
     private func shouldIgnoreDuplicate(_ update: SpeechPipelineUpdate) -> Bool {
@@ -625,6 +814,30 @@ public final class AppViewModel: ObservableObject {
                 ("ตอนนี้เรากำลังทดสอบการแปลภาษาไทยเป็นภาษาจีนแบบเรียลไทม์", "现在正在测试泰语到中文的实时翻译。"),
                 ("แอปนี้รองรับเสียงจากไมโครโฟนและเสียงจากระบบ", "这个应用同时支持麦克风和系统音频。"),
                 ("คุณสามารถบันทึกต้นฉบับและคำแปลลงในไฟล์ได้ทันที", "你可以立即把原文和译文导出为文件。")
+            ]
+        case (.ru, .zhHans):
+            return [
+                ("Сейчас мы тестируем перевод с русского на китайский в реальном времени.", "现在正在测试俄语到中文的实时翻译。"),
+                ("Приложение может одновременно показывать оригинал и перевод в двух колонках.", "应用可以同时用双栏显示原文和译文。"),
+                ("После переключения языка запись и экспорт остаются доступными.", "切换语言后，字幕记录和导出功能仍然可用。")
+            ]
+        case (.it, .zhHans):
+            return [
+                ("Stiamo testando la traduzione simultanea dall'italiano al cinese.", "现在正在测试意大利语到中文的实时翻译。"),
+                ("L'app supporta sia l'audio di sistema sia il microfono.", "这个应用同时支持系统音频和麦克风输入。"),
+                ("Puoi ridimensionare la finestra senza interrompere i sottotitoli.", "调整窗口大小时，字幕会继续正常显示。")
+            ]
+        case (.zhHans, .ru):
+            return [
+                ("现在开始测试中文到俄文的同声翻译。", "Сейчас мы тестируем синхронный перевод с китайского на русский."),
+                ("你可以一边播放视频，一边查看双栏字幕。", "Вы можете одновременно воспроизводить видео и читать двуколоночные субтитры."),
+                ("目标是尽量保持低延迟和稳定输出。", "Цель — сохранить минимальную задержку и стабильный вывод.")
+            ]
+        case (.zhHans, .it):
+            return [
+                ("现在开始测试中文到意大利文的同声翻译。", "Ora stiamo testando la traduzione simultanea dal cinese all'italiano."),
+                ("切换语言后，界面和导出内容都会同步更新。", "Dopo il cambio lingua, anche interfaccia ed esportazione si aggiornano subito."),
+                ("目标是尽量保持低延迟和稳定输出。", "L'obiettivo è mantenere bassa la latenza e un output stabile.")
             ]
         case (.ja, .zhHans):
             return [
@@ -758,9 +971,339 @@ public final class AppViewModel: ObservableObject {
             return
         }
 
+        if nsError.domain == "Translation.TranslationError",
+           nsError.code == 1,
+           (nsError.localizedFailureReason?.localizedCaseInsensitiveContains("downloaded on-device") == true
+            || nsError.localizedDescription.localizedCaseInsensitiveContains("unable to translate")) {
+            let pair = TranslationPair(source: selectedSourceLanguage, target: targetLanguage)
+            let pairMessage = manualTranslationDownloadMessage(for: pair)
+            resetTranslationPreparationState()
+            errorMessage = pairMessage
+            statusMessage = pairMessage
+            runState = .blocked
+            return
+        }
+
         errorMessage = error.localizedDescription
         statusMessage = error.localizedDescription
         runState = .error
+    }
+
+    private func beginTranslationPreparation(
+        for pair: TranslationPair,
+        autoResumeStart: Bool,
+        status: String
+    ) {
+        if let availableDiskSpace = readinessService.availableDiskSpaceBytes(),
+           availableDiskSpace < minimumDiskSpaceForTranslationDownloadBytes {
+            let freeMB = max(availableDiskSpace / 1_000_000, 0)
+            let message = "磁盘可用空间不足，当前仅剩约 \(freeMB) MB，系统无法下载 \(pair.source.displayName) -> \(pair.target.displayName) 的离线翻译资源。请先释放至少 1 GB 空间后再试。"
+            shouldResumeStartAfterTranslationPreparation = false
+            errorMessage = message
+            statusMessage = message
+            runState = .error
+            resetTranslationPreparationState()
+            return
+        }
+
+        if autoResumeStart {
+            shouldResumeStartAfterTranslationPreparation = true
+        }
+        preparingTranslationPair = pair
+        isPreparingTranslationResources = true
+        translationPreparationRequest = TranslationPreparationRequest(pair: pair)
+        runState = .checkingReadiness
+        statusMessage = status
+    }
+
+    private func resetTranslationPreparationState() {
+        translationPreparationRequest = nil
+        preparingTranslationPair = nil
+        isPreparingTranslationResources = false
+    }
+
+    private func cancelTranslationPreparation() {
+        shouldResumeStartAfterTranslationPreparation = false
+        resetTranslationPreparationState()
+    }
+
+    private func waitForInstalledTranslation(for pair: TranslationPair, timeout: TimeInterval) async -> AssetAvailability {
+        let deadline = Date().addingTimeInterval(timeout)
+        var availability: AssetAvailability = .unknown
+
+        repeat {
+            availability = await readinessService.translationAvailability(for: pair)
+            if availability != .supported {
+                await refreshReadiness()
+                return availability
+            }
+
+            try? await Task.sleep(for: .milliseconds(500))
+        } while Date() < deadline
+
+        await refreshReadiness()
+        return availability
+    }
+
+    private func manualTranslationDownloadMessage(for pair: TranslationPair) -> String {
+        "\(pair.source.displayName) 到 \(pair.target.displayName) 当前仅处于“系统支持”状态，但离线翻译资源尚未安装。请前往“系统设置 -> 通用 -> 语言与地区 -> 翻译语言”手动下载后再试。"
+    }
+
+    private func effectiveTranslationUpdate(
+        from update: SpeechPipelineUpdate,
+        isStable: Bool
+    ) -> SpeechPipelineUpdate {
+        let trimmedText = trimmedLiveText(for: update, isStable: isStable)
+        guard trimmedText != update.text else { return update }
+
+        return SpeechPipelineUpdate(
+            sourceLanguage: update.sourceLanguage,
+            text: trimmedText,
+            confidence: update.confidence,
+            isStable: update.isStable,
+            receivedAt: update.receivedAt
+        )
+    }
+
+    private func trimmedLiveText(for update: SpeechPipelineUpdate, isStable: Bool) -> String {
+        let trimmed = uncommittedText(from: update.text)
+        guard !trimmed.isEmpty else { return update.text }
+
+        guard !isStable else { return trimmed }
+
+        let candidate = trimmed
+
+        let liveWindow = maxLiveTranslationWindow(for: update.sourceLanguage)
+        guard candidate.count > liveWindow else { return candidate }
+
+        let suffixIndex = candidate.index(candidate.endIndex, offsetBy: -liveWindow)
+        let suffix = String(candidate[suffixIndex...])
+        return anchoredWindow(in: suffix)
+    }
+
+    private func maxLiveTranslationWindow(for language: SupportedLanguage) -> Int {
+        switch language {
+        case .ru, .it, .ja, .fr, .de, .es, .ko:
+            return 150
+        case .zhHans, .en, .th:
+            return 180
+        }
+    }
+
+    private func anchoredWindow(in text: String) -> String {
+        let separators = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
+        let unicodeScalars = Array(text.unicodeScalars)
+        guard unicodeScalars.count > 48 else { return text }
+
+        if let splitOffset = unicodeScalars.indices.first(where: { index in
+            index >= 24 && separators.contains(unicodeScalars[index])
+        }) {
+            let scalarView = String.UnicodeScalarView(unicodeScalars[splitOffset...])
+            let anchored = String(scalarView).trimmingCharacters(in: .whitespacesAndNewlines)
+            if anchored.count >= 24 {
+                return anchored
+            }
+        }
+
+        return text
+    }
+
+    private func makeTranslationPlan(from update: SpeechPipelineUpdate) -> TranslationPlan {
+        if update.isStable {
+            let stableText = effectiveTranslationUpdate(from: update, isStable: true).text
+            return TranslationPlan(
+                stableCommittedText: stableText.isEmpty ? nil : stableText,
+                liveUpdate: nil,
+                newCommittedPrefix: nil
+            )
+        }
+
+        if let commit = autoCommitChunk(from: update) {
+            let liveText = commit.remainingText
+            let liveUpdate: SpeechPipelineUpdate?
+            if liveText.isEmpty {
+                liveUpdate = nil
+            } else {
+                liveUpdate = SpeechPipelineUpdate(
+                    sourceLanguage: update.sourceLanguage,
+                    text: liveText,
+                    confidence: update.confidence,
+                    isStable: false,
+                    receivedAt: update.receivedAt
+                )
+            }
+
+            return TranslationPlan(
+                stableCommittedText: commit.committedText,
+                liveUpdate: liveUpdate,
+                newCommittedPrefix: commit.newCommittedPrefix
+            )
+        }
+
+        let liveUpdate = effectiveTranslationUpdate(from: update, isStable: false)
+        return TranslationPlan(
+            stableCommittedText: nil,
+            liveUpdate: liveUpdate.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : liveUpdate,
+            newCommittedPrefix: nil
+        )
+    }
+
+    private func autoCommitChunk(from update: SpeechPipelineUpdate) -> AutoCommittedChunk? {
+        let normalizedFullText = update.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedFullText.isEmpty else { return nil }
+
+        let uncommittedRaw = uncommittedRawText(from: update.text)
+        let uncommitted = uncommittedRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !uncommitted.isEmpty else { return nil }
+
+        let commitBoundary = commitBoundaryIndex(in: uncommittedRaw, language: update.sourceLanguage)
+        guard let boundary = commitBoundary else { return nil }
+
+        let committedRaw = String(uncommittedRaw[..<boundary])
+        let committedText = committedRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let remainingText = String(uncommittedRaw[boundary...]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard committedText.count >= 16 else { return nil }
+
+        let newCommittedPrefix = committedSourcePrefix + committedRaw
+        return AutoCommittedChunk(
+            committedText: committedText,
+            remainingText: remainingText,
+            newCommittedPrefix: newCommittedPrefix
+        )
+    }
+
+    private func uncommittedText(from recognizedText: String) -> String {
+        uncommittedRawText(from: recognizedText).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func uncommittedRawText(from recognizedText: String) -> String {
+        guard !committedSourcePrefix.isEmpty else { return recognizedText }
+        guard recognizedText.hasPrefix(committedSourcePrefix) else { return recognizedText }
+        return String(recognizedText.dropFirst(committedSourcePrefix.count))
+    }
+
+    private func commitBoundaryIndex(
+        in rawText: String,
+        language: SupportedLanguage
+    ) -> String.Index? {
+        let punctuationScalars = CharacterSet(charactersIn: ".!?。！？;；")
+        let prefersPunctuationBoundary = language.addsPunctuationDuringRecognition
+        let minimumTailCount = prefersPunctuationBoundary ? 18 : 10
+        let minimumCommittedCount = prefersPunctuationBoundary ? 18 : 14
+
+        var lastPunctuationBoundary: String.Index?
+        for index in rawText.indices {
+            let next = rawText.index(after: index)
+            guard let scalar = rawText[index].unicodeScalars.first else { continue }
+            if punctuationScalars.contains(scalar) {
+                let committedCount = rawText[..<next].trimmingCharacters(in: .whitespacesAndNewlines).count
+                let remainingCount = rawText[next...].trimmingCharacters(in: .whitespacesAndNewlines).count
+                if committedCount >= minimumCommittedCount && remainingCount >= minimumTailCount {
+                    lastPunctuationBoundary = next
+                }
+            }
+        }
+        if let lastPunctuationBoundary {
+            return lastPunctuationBoundary
+        }
+
+        let hardWindow = prefersPunctuationBoundary ? (maxLiveTranslationWindow(for: language) + 40) : 72
+        guard rawText.count >= hardWindow else { return nil }
+
+        let splitTarget = prefersPunctuationBoundary ? (maxLiveTranslationWindow(for: language) - 20) : 54
+        let anchorOffset = min(max(splitTarget, 32), rawText.count - minimumTailCount)
+        let anchorIndex = rawText.index(rawText.startIndex, offsetBy: anchorOffset)
+        let suffix = rawText[anchorIndex...]
+        if let whitespaceBoundary = suffix.firstIndex(where: { $0.isWhitespace }) {
+            let committedCount = rawText[..<whitespaceBoundary].trimmingCharacters(in: .whitespacesAndNewlines).count
+            let remainingCount = rawText[whitespaceBoundary...].trimmingCharacters(in: .whitespacesAndNewlines).count
+            if committedCount >= minimumCommittedCount && remainingCount >= minimumTailCount {
+                return whitespaceBoundary
+            }
+        }
+
+        return nil
+    }
+
+    private func markTranscriptChanged() {
+        transcriptRevision += 1
+        lastTranscriptMutationAt = .now
+    }
+
+    private func activateStreamingPipeline(markRunning: Bool) async throws {
+        let capture = makeAudioCapture()
+        try speechRecognition.start(mode: languageMode)
+        await translationPipeline.prepare(source: selectedSourceLanguage, target: targetLanguage)
+        try await capture.start()
+        activeCapture = capture
+        if markRunning {
+            isRunning = true
+        }
+        runState = .listening
+        statusMessage = audioSource == .microphone ? "正在监听麦克风。" : "正在监听系统音频。"
+    }
+
+    private func makeAudioCapture() -> AudioCaptureController {
+        let capture: AudioCaptureController = switch audioSource {
+        case .microphone:
+            MicrophoneAudioCapture()
+        case .systemAudio:
+            SystemAudioCapture()
+        }
+
+        capture.onPCMBuffer = { [weak self] buffer in
+            self?.speechRecognition.appendPCMBuffer(buffer)
+        }
+        capture.onSampleBuffer = { [weak self] sampleBuffer in
+            self?.speechRecognition.appendSampleBuffer(sampleBuffer)
+        }
+        return capture
+    }
+
+    private func recoverStreamingPipeline() async {
+        guard isRunning else { return }
+
+        translationTask?.cancel()
+        silenceWatchdogTask?.cancel()
+        playbackService.stop()
+        speechRecognition.stop()
+        await activeCapture?.stop()
+        activeCapture = nil
+        liveSegment = nil
+        currentUtteranceStartedAt = nil
+        lastSpeechUpdate = nil
+        lastScheduledSignature = nil
+        committedSourcePrefix = ""
+        markTranscriptChanged()
+
+        do {
+            try await activateStreamingPipeline(markRunning: false)
+            statusMessage = "音频链路已自动恢复。"
+        } catch {
+            present(error: error)
+        }
+    }
+
+    private func commitStableSegment(_ segment: TranslationSegment) {
+        if let last = segments.last,
+           TranscriptSegmentReducer.shouldMerge(last, with: segment) {
+            segments[segments.count - 1] = TranslationSegment(
+                id: last.id,
+                sourceLanguage: segment.sourceLanguage,
+                targetLanguage: segment.targetLanguage,
+                sourceText: segment.sourceText,
+                translatedText: segment.translatedText,
+                isStable: true,
+                startedAt: last.startedAt,
+                updatedAt: segment.updatedAt
+            )
+        } else {
+            segments.append(segment)
+            if segments.count > maxStoredSegments {
+                segments = Array(segments.suffix(maxStoredSegments))
+            }
+        }
     }
 }
 
@@ -768,4 +1311,166 @@ private struct ScheduledSignature: Equatable {
     let sourceLanguage: SupportedLanguage
     let text: String
     let isStable: Bool
+}
+
+private struct TranslationPlan {
+    let stableCommittedText: String?
+    let liveUpdate: SpeechPipelineUpdate?
+    let newCommittedPrefix: String?
+}
+
+private struct AutoCommittedChunk {
+    let committedText: String
+    let remainingText: String
+    let newCommittedPrefix: String
+}
+
+struct TranscriptSegmentReducer {
+    static func composeDisplaySegments(
+        stableSegments: [TranslationSegment],
+        liveSegment: TranslationSegment?
+    ) -> [TranslationSegment] {
+        var reduced = coalesce(stableSegments)
+
+        guard let liveSegment else { return reduced }
+
+        if let index = reduced.firstIndex(where: { $0.id == liveSegment.id && !$0.isStable }) {
+            reduced[index] = liveSegment
+        } else {
+            if reduced.contains(where: { $0.id == liveSegment.id }) {
+                reduced.append(
+                    TranslationSegment(
+                        sourceLanguage: liveSegment.sourceLanguage,
+                        targetLanguage: liveSegment.targetLanguage,
+                        sourceText: liveSegment.sourceText,
+                        translatedText: liveSegment.translatedText,
+                        isStable: false,
+                        startedAt: liveSegment.startedAt,
+                        updatedAt: liveSegment.updatedAt
+                    )
+                )
+            } else {
+                reduced.append(liveSegment)
+            }
+        }
+
+        return reduced
+    }
+
+    static func coalesce(_ segments: [TranslationSegment]) -> [TranslationSegment] {
+        guard !segments.isEmpty else { return [] }
+
+        var reduced: [TranslationSegment] = []
+        reduced.reserveCapacity(segments.count)
+
+        for segment in segments {
+            if let last = reduced.last, shouldMerge(last, with: segment) {
+                reduced[reduced.count - 1] = merged(lhs: last, rhs: segment)
+            } else {
+                reduced.append(segment)
+            }
+        }
+
+        return reduced
+    }
+
+    static func shouldMerge(_ lhs: TranslationSegment, with rhs: TranslationSegment) -> Bool {
+        guard lhs.sourceLanguage == rhs.sourceLanguage,
+              lhs.targetLanguage == rhs.targetLanguage else {
+            return false
+        }
+
+        let recentGap = rhs.updatedAt.timeIntervalSince(lhs.updatedAt) <= 18
+        guard recentGap else { return false }
+
+        let lhsSource = normalized(lhs.sourceText)
+        let rhsSource = normalized(rhs.sourceText)
+        let lhsTranslation = normalized(lhs.translatedText)
+        let rhsTranslation = normalized(rhs.translatedText)
+
+        guard !lhsSource.isEmpty, !rhsSource.isEmpty else { return false }
+        guard manageableGrowth(lhsSource, rhsSource) else { return false }
+
+        return overlapsStrongly(lhsSource, rhsSource)
+            || (min(lhsSource.count, rhsSource.count) < 12
+                && !lhsTranslation.isEmpty
+                && !rhsTranslation.isEmpty
+                && overlapsStrongly(lhsTranslation, rhsTranslation))
+    }
+
+    private static func merged(lhs: TranslationSegment, rhs: TranslationSegment) -> TranslationSegment {
+        TranslationSegment(
+            id: lhs.id,
+            sourceLanguage: rhs.sourceLanguage,
+            targetLanguage: rhs.targetLanguage,
+            sourceText: rhs.sourceText,
+            translatedText: rhs.translatedText,
+            isStable: rhs.isStable,
+            startedAt: lhs.startedAt,
+            updatedAt: rhs.updatedAt
+        )
+    }
+
+    private static func normalized(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    private static func overlapsStrongly(_ lhs: String, _ rhs: String) -> Bool {
+        if lhs == rhs || lhs.hasPrefix(rhs) || rhs.hasPrefix(lhs) {
+            return true
+        }
+
+        let minCount = min(lhs.count, rhs.count)
+        guard minCount >= 12 else { return false }
+
+        let prefix = commonPrefixLength(lhs, rhs)
+        if Double(prefix) / Double(minCount) >= 0.9 {
+            return true
+        }
+
+        let overlap = suffixPrefixOverlap(lhs, rhs)
+        return Double(overlap) / Double(minCount) >= 0.9
+    }
+
+    private static func manageableGrowth(_ lhs: String, _ rhs: String) -> Bool {
+        let shorter = min(lhs.count, rhs.count)
+        let longer = max(lhs.count, rhs.count)
+        let growth = longer - shorter
+        return growth <= max(72, Int(Double(shorter) * 0.85))
+    }
+
+    private static func commonPrefixLength(_ lhs: String, _ rhs: String) -> Int {
+        let lhsChars = Array(lhs)
+        let rhsChars = Array(rhs)
+        var count = 0
+
+        for (left, right) in zip(lhsChars, rhsChars) {
+            guard left == right else { break }
+            count += 1
+        }
+
+        return count
+    }
+
+    private static func suffixPrefixOverlap(_ lhs: String, _ rhs: String) -> Int {
+        let lhsChars = Array(lhs)
+        let rhsChars = Array(rhs)
+        let maxOverlap = min(lhsChars.count, rhsChars.count)
+
+        guard maxOverlap > 0 else { return 0 }
+
+        for length in stride(from: maxOverlap, through: 1, by: -1) {
+            if Array(lhsChars.suffix(length)) == Array(rhsChars.prefix(length)) {
+                return length
+            }
+            if Array(rhsChars.suffix(length)) == Array(lhsChars.prefix(length)) {
+                return length
+            }
+        }
+
+        return 0
+    }
 }

@@ -22,7 +22,7 @@ struct OfflineInterpreterApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(viewModel: viewModel)
-                .frame(minWidth: 760, minHeight: 340)
+                .frame(minWidth: 920, minHeight: 300)
         }
     }
 

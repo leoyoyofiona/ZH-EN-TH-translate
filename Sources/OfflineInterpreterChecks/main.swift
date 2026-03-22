@@ -14,10 +14,11 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
 @main
 struct OfflineInterpreterChecks {
     static func main() throws {
-        try expect(SupportedLanguage.allCases.count >= 8, "Expected expanded common-language support set")
+        try expect(SupportedLanguage.allCases.count >= 10, "Expected expanded common-language support set")
         try expect(Set(SupportedLanguage.allCases.map(\.displayName)).count == SupportedLanguage.allCases.count, "Language display names should stay unique")
         try expect(SupportedLanguage.ja.scriptScore(for: "これは日本語の字幕です") > 0.2, "Japanese script score should recognize kana/kanji")
         try expect(SupportedLanguage.ko.scriptScore(for: "이것은 한국어 자막입니다") > 0.2, "Korean script score should recognize hangul")
+        try expect(SupportedLanguage.ru.scriptScore(for: "Это русские субтитры") > 0.2, "Russian script score should recognize Cyrillic")
 
         let scorer = LanguageScorer()
         let hypotheses: [SupportedLanguage: RecognitionHypothesis] = [
@@ -35,6 +36,8 @@ struct OfflineInterpreterChecks {
         let thaiTerms = overlay.contextualStrings(for: .th)
         try expect(thaiTerms.contains("แอปเปิล"), "Thai contextual lexicon should expose Apple")
         try expect(thaiTerms.contains("ไอโฟน"), "Thai contextual lexicon should expose iPhone")
+        let russianTerms = overlay.contextualStrings(for: .ru)
+        try expect(russianTerms.contains("Эппл"), "Russian contextual lexicon should expose Apple")
 
         print("OfflineInterpreterChecks: PASS")
     }

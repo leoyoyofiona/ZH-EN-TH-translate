@@ -2,8 +2,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP="$HOME/Applications/OfflineInterpreterApp.app"
-BIN="$APP/Contents/MacOS/OfflineInterpreterApp"
+APP_DISPLAY_NAME="多国语言同声翻译"
+EXECUTABLE_NAME="OfflineInterpreterApp"
+APP="$HOME/Applications/${APP_DISPLAY_NAME}.app"
+BIN="$APP/Contents/MacOS/${EXECUTABLE_NAME}"
 SHOT_DIR="$ROOT/docs/screenshots"
 CONTENTS="$APP/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
@@ -24,7 +26,7 @@ build_app() {
 
     rm -rf "$APP"
     mkdir -p "$MACOS_DIR"
-    cp "$bin_dir/OfflineInterpreterApp" "$MACOS_DIR/OfflineInterpreterApp"
+    cp "$bin_dir/$EXECUTABLE_NAME" "$MACOS_DIR/$EXECUTABLE_NAME"
 
     cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -34,15 +36,15 @@ build_app() {
     <key>CFBundleDevelopmentRegion</key>
     <string>zh_CN</string>
     <key>CFBundleDisplayName</key>
-    <string>OfflineInterpreterApp</string>
+    <string>${APP_DISPLAY_NAME}</string>
     <key>CFBundleExecutable</key>
-    <string>OfflineInterpreterApp</string>
+    <string>${EXECUTABLE_NAME}</string>
     <key>CFBundleIdentifier</key>
     <string>local.codex.offline-interpreter</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>OfflineInterpreterApp</string>
+    <string>${APP_DISPLAY_NAME}</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -95,7 +97,7 @@ let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopEl
 
 let matches = windows.compactMap { info -> (id: CGWindowID, bounds: CGRect, owner: String, layer: Int)? in
     guard let owner = info[kCGWindowOwnerName as String] as? String,
-          owner.contains("OfflineInterpreterApp"),
+          owner.contains("OfflineInterpreterApp") || owner.contains("多国语言同声翻译"),
           let id = info[kCGWindowNumber as String] as? NSNumber,
           let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
           let bounds = CGRect(dictionaryRepresentation: boundsDict) else {
@@ -108,7 +110,7 @@ let matches = windows.compactMap { info -> (id: CGWindowID, bounds: CGRect, owne
 .filter { $0.bounds.width > 900 && $0.bounds.height > 400 }
 
 guard let window = matches.max(by: { ($0.bounds.width * $0.bounds.height) < ($1.bounds.width * $1.bounds.height) }) else {
-    fputs("Unable to locate OfflineInterpreterApp window for screenshot.\n", stderr)
+    fputs("Unable to locate app window for screenshot.\n", stderr)
     exit(1)
 }
 print(window.id)

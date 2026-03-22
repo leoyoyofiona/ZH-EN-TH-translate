@@ -18,6 +18,8 @@ public enum SupportedLanguage: String, CaseIterable, Identifiable, Codable, Send
     case zhHans = "zh-Hans"
     case en = "en"
     case th = "th"
+    case ru = "ru"
+    case it = "it"
     case ja = "ja"
     case fr = "fr"
     case de = "de"
@@ -31,6 +33,8 @@ public enum SupportedLanguage: String, CaseIterable, Identifiable, Codable, Send
         case .zhHans: return "中文"
         case .en: return "英文"
         case .th: return "泰文"
+        case .ru: return "俄文"
+        case .it: return "意大利文"
         case .ja: return "日文"
         case .fr: return "法文"
         case .de: return "德文"
@@ -44,6 +48,8 @@ public enum SupportedLanguage: String, CaseIterable, Identifiable, Codable, Send
         case .zhHans: return "zh-CN"
         case .en: return "en-US"
         case .th: return "th-TH"
+        case .ru: return "ru-RU"
+        case .it: return "it-IT"
         case .ja: return "ja-JP"
         case .fr: return "fr-FR"
         case .de: return "de-DE"
@@ -65,6 +71,8 @@ public enum SupportedLanguage: String, CaseIterable, Identifiable, Codable, Send
         case .zhHans: return "com.apple.voice.compact.zh-CN.Tingting"
         case .en: return "com.apple.voice.compact.en-US.Samantha"
         case .th: return "com.apple.voice.compact.th-TH.Kanya"
+        case .ru: return "com.apple.voice.compact.ru-RU.Milena"
+        case .it: return "com.apple.voice.compact.it-IT.Alice"
         case .ja: return "com.apple.voice.compact.ja-JP.Kyoko"
         case .fr: return "com.apple.voice.compact.fr-FR.Thomas"
         case .de: return "com.apple.voice.compact.de-DE.Anna"
@@ -78,6 +86,8 @@ public enum SupportedLanguage: String, CaseIterable, Identifiable, Codable, Send
         case .zhHans: return "Tingting"
         case .en: return "Samantha"
         case .th: return "Kanya"
+        case .ru: return "Milena"
+        case .it: return "Alice"
         case .ja: return "Kyoko"
         case .fr: return "Thomas"
         case .de: return "Anna"
@@ -88,6 +98,15 @@ public enum SupportedLanguage: String, CaseIterable, Identifiable, Codable, Send
 
     public var bcP47Tag: String {
         localeIdentifier
+    }
+
+    public var addsPunctuationDuringRecognition: Bool {
+        switch self {
+        case .zhHans, .en, .th:
+            return true
+        case .ru, .it, .ja, .fr, .de, .es, .ko:
+            return false
+        }
     }
 
     public func scriptScore(for text: String) -> Double {
@@ -111,11 +130,15 @@ public enum SupportedLanguage: String, CaseIterable, Identifiable, Codable, Send
                 if (0x0E00...0x0E7F).contains(value) {
                     partialResult += 1
                 }
+            case .ru:
+                if (0x0400...0x04FF).contains(value) || (0x0500...0x052F).contains(value) {
+                    partialResult += 1
+                }
             case .ja:
                 if (0x3040...0x309F).contains(value) || (0x30A0...0x30FF).contains(value) || (0x4E00...0x9FFF).contains(value) {
                     partialResult += 1
                 }
-            case .fr, .de, .es:
+            case .it, .fr, .de, .es:
                 if (0x0041...0x005A).contains(value)
                     || (0x0061...0x007A).contains(value)
                     || (0x00C0...0x00FF).contains(value) {
@@ -295,6 +318,16 @@ public struct TranslationPair: Hashable, Sendable {
     public init(source: SupportedLanguage, target: SupportedLanguage) {
         self.source = source
         self.target = target
+    }
+}
+
+public struct TranslationPreparationRequest: Identifiable, Equatable, Sendable {
+    public let id: UUID
+    public let pair: TranslationPair
+
+    public init(id: UUID = UUID(), pair: TranslationPair) {
+        self.id = id
+        self.pair = pair
     }
 }
 

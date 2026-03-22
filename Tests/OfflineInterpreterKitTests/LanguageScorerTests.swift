@@ -27,4 +27,9 @@ struct LanguageScorerTests {
 
         #expect(best?.language == .en)
     }
+
+    @Test
+    func russianScriptGetsRecognized() {
+        #expect(SupportedLanguage.ru.scriptScore(for: "Это субтитры на русском языке.") > 0.2)
+    }
 }
