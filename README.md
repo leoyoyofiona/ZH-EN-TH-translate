@@ -8,7 +8,7 @@
 
 ![英文转中文界面](docs/screenshots/english-to-chinese.png)
 
-- 演示录屏：[translation-app-demo.mov](docs/demo/translation-app-demo.mov)
+![演示录屏](docs/demo/translation-app-demo.gif)
 
 ## 为什么做这个项目
 
