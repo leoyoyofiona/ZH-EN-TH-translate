@@ -80,6 +80,7 @@
 - 仓库地址：[ZH-EN-TH-translate](https://github.com/leoyoyofiona/ZH-EN-TH-translate)
 - 推荐下载发布包：`multilingual-live-translator-v0.1.2-macOS.dmg`
 - 普通用户不需要安装 Xcode、终端工具或任何开发环境
+- 详细图文安装指南：[docs/install-guide.md](docs/install-guide.md)
 
 安装步骤：
 
