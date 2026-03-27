@@ -128,7 +128,7 @@ hdiutil attach \
 
 SetFile -a C "$MOUNT_POINT" >/dev/null 2>&1 || true
 
-/usr/bin/osascript <<EOF >/dev/null
+if ! /usr/bin/osascript <<EOF >/dev/null
 tell application "Finder"
     tell disk "${VOLUME_NAME}"
         open
@@ -149,6 +149,9 @@ tell application "Finder"
     end tell
 end tell
 EOF
+then
+    echo "警告：Finder DMG 窗口布局定制失败，继续使用默认布局生成 DMG。" >&2
+fi
 
 SetFile -a V "$MOUNT_POINT/.background" "$MOUNT_POINT/.background/background.png" "$MOUNT_POINT/.VolumeIcon.icns" >/dev/null 2>&1 || true
 
