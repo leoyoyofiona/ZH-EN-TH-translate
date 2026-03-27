@@ -18,11 +18,15 @@ MOUNT_POINT="/Volumes/$VOLUME_NAME"
 RESOURCES_DIR="$ROOT/Resources"
 BACKGROUND_PNG="$RESOURCES_DIR/dmg-background.png"
 ICON_ICNS="$RESOURCES_DIR/AppIcon.icns"
+INSTALL_NOTE_PATH="$STAGE_DIR/首次打开说明.txt"
 WINDOW_BOUNDS="{140, 120, 1060, 670}"
 APP_POSITION="{230, 315}"
 APPLICATIONS_POSITION="{690, 315}"
 ICON_SIZE="136"
 TEXT_SIZE="16"
+LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+SIGNING_IDENTITY="${CODE_SIGN_IDENTITY:-}"
+ALLOW_DEV_SIGNING="${ALLOW_DEV_SIGNING:-0}"
 
 cleanup() {
     if mount | grep -Fq "$MOUNT_POINT"; then
@@ -32,6 +36,41 @@ cleanup() {
     rm -f "$RW_DMG"
 }
 trap cleanup EXIT
+
+resolve_signing_identity() {
+    if [[ -n "$SIGNING_IDENTITY" ]]; then
+        return
+    fi
+
+    SIGNING_IDENTITY="$(
+        security find-identity -v -p codesigning "$LOGIN_KEYCHAIN" 2>/dev/null |
+        awk -F'"' '/Developer ID Application:/ {print $2; exit}'
+    )"
+
+    if [[ -n "$SIGNING_IDENTITY" ]]; then
+        return
+    fi
+
+    if [[ "$ALLOW_DEV_SIGNING" == "1" ]]; then
+        SIGNING_IDENTITY="$(
+            security find-identity -v -p codesigning "$LOGIN_KEYCHAIN" 2>/dev/null |
+            awk -F'"' '/Apple Development:/ {print $2; exit}'
+        )"
+        if [[ -n "$SIGNING_IDENTITY" ]]; then
+            echo "警告：未找到 Developer ID Application，当前改用 Apple Development 生成仅限本机测试的 DMG。" >&2
+            return
+        fi
+    fi
+
+    cat >&2 <<'EOF'
+错误：未找到 Developer ID Application 证书。
+
+当前这台机器不能生成适合公开分发的 DMG。
+如果你只想本机测试，可这样执行：
+  ALLOW_DEV_SIGNING=1 ./scripts/build_release_dmg.sh
+EOF
+    exit 1
+}
 
 mkdir -p "$DIST_DIR"
 
@@ -54,6 +93,23 @@ ln -s /Applications "$STAGE_DIR/Applications"
 mkdir -p "$STAGE_DIR/.background"
 cp "$BACKGROUND_PNG" "$STAGE_DIR/.background/background.png"
 cp "$ICON_ICNS" "$STAGE_DIR/.VolumeIcon.icns"
+cat >"$INSTALL_NOTE_PATH" <<'EOF'
+多国语言同声翻译 - 首次打开说明
+
+1. 先把“多国语言同声翻译.app”拖到 Applications。
+2. 如果首次打开被 macOS 拦截，请在“终端”执行：
+
+   xattr -dr com.apple.quarantine "/Applications/多国语言同声翻译.app"
+
+3. 再次打开应用并按系统提示授权：
+   - 屏幕录制
+   - 麦克风
+   - 语音识别
+
+说明：
+- 当前发布包为社区版，没有 Developer ID Application 和苹果公证。
+- 手动移除隔离属性后，应用可以正常运行。
+EOF
 
 hdiutil create \
   -volname "$VOLUME_NAME" \
@@ -99,5 +155,7 @@ SetFile -a V "$MOUNT_POINT/.background" "$MOUNT_POINT/.background/background.png
 sync
 hdiutil detach "$MOUNT_POINT" >/dev/null
 hdiutil convert "$RW_DMG" -format UDZO -imagekey zlib-level=9 -ov -o "$DMG_PATH" >/dev/null
+resolve_signing_identity
+codesign --force --keychain "$LOGIN_KEYCHAIN" --sign "$SIGNING_IDENTITY" --timestamp "$DMG_PATH" >/dev/null 2>&1 || true
 
 echo "Release DMG 已生成：$DMG_PATH"

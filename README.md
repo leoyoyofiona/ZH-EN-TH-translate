@@ -78,7 +78,7 @@
 ### 方式一：从 Releases 下载
 
 - 仓库地址：[ZH-EN-TH-translate](https://github.com/leoyoyofiona/ZH-EN-TH-translate)
-- 推荐下载发布包：`多国语言同声翻译-v0.1.1-macOS.dmg`
+- 推荐下载发布包：`多国语言同声翻译-v0.1.2-macOS.dmg`
 - 普通用户不需要安装 Xcode、终端工具或任何开发环境
 
 安装步骤：
@@ -86,12 +86,18 @@
 1. 下载 `DMG`
 2. 双击打开 `DMG`
 3. 把 `多国语言同声翻译.app` 拖到 `Applications`
-4. 打开应用
-5. 首次使用时按系统提示授权：
+4. 如果你的机器没有 Apple `Developer ID` 信任链，先在“终端”执行：
+
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/多国语言同声翻译.app"
+   ```
+
+5. 打开应用
+6. 首次使用时按系统提示授权：
    - 屏幕录制：系统音频模式需要
    - 麦克风：麦克风模式需要
    - 语音识别：所有识别模式都需要
-6. 如果选择的语言提示“需下载翻译语言”，按提示进入：
+7. 如果选择的语言提示“需下载翻译语言”，按提示进入：
    - `系统设置 -> 通用 -> 语言与地区 -> 翻译语言`
    - 下载对应语言包后再回到应用
 
@@ -101,18 +107,30 @@
 - 当前发布包不包含额外语言模型，语言资源由用户自己的 macOS 系统负责下载和管理
 - 中文、英文、泰文在开发机上已验证为本地识别 + 本地翻译
 - 俄文、意大利文、日文、法文、德文、西班牙文、韩文需要先下载系统翻译语言包；是否能做到纯离线识别取决于该机器是否已有对应语音识别资源
-- 如果 macOS 首次拦截应用，按系统提示在“隐私与安全性”里允许一次即可，之后不需要开发环境参与
+- 当前仓库发布的是“社区版”安装包：没有 `Developer ID Application` 和苹果公证，所以首次打开前需要手动移除隔离属性
+- 手动移除隔离后，应用可以正常安装、授权并运行；这一步只需执行一次
 
 如需本地重新生成发布包：
 
 ```bash
-./scripts/build_release_dmg.sh
+ALLOW_DEV_SIGNING=1 ./scripts/build_release_dmg.sh
+```
+
+如需生成适合 GitHub 公开分发、用户下载后可直接打开的正式发布包，维护者必须先准备：
+
+- `Developer ID Application` 证书
+- `notarytool` 公证凭据
+
+然后执行：
+
+```bash
+./scripts/release_public.sh
 ```
 
 生成结果默认位于：
 
 ```bash
-dist/多国语言同声翻译-v0.1.1-macOS.dmg
+dist/多国语言同声翻译-v0.1.2-macOS.dmg
 ```
 
 ### 方式二：直接运行源码
@@ -154,6 +172,10 @@ swift run OfflineInterpreterChecks
 - `scripts/open_app.sh`：构建并打开稳定安装在 `~/Applications` 的 app
 - `scripts/build_release_zip.sh`：构建 Xcode Release 包并导出 ZIP
 - `scripts/build_release_dmg.sh`：构建 DMG 安装包
+- `scripts/release_github_community.sh`：在没有 Developer ID 的情况下构建社区版安装包并上传到 GitHub Release
+- `scripts/notarize_release.sh`：提交苹果公证并 stapler 回写
+- `scripts/release_public.sh`：一键生成正式公开分发包
+- `scripts/validate_release.sh`：本地验证 codesign 与 Gatekeeper
 - `OfflineInterpreterApp.xcodeproj`：适合 Xcode 正式签名运行的工程
 
 ## 已做的速度优化

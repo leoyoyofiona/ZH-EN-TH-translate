@@ -17,6 +17,9 @@ ICON_PNG="$RESOURCES_DIR/AppIcon-base.png"
 ICON_ICNS="$RESOURCES_DIR/AppIcon.icns"
 ZIP_STAGE="$(mktemp -d "${TMPDIR:-/tmp}/offline-interpreter-zip.XXXXXX")"
 STAGED_APP_PATH="$ZIP_STAGE/${APP_DISPLAY_NAME}.app"
+LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+SIGNING_IDENTITY="${CODE_SIGN_IDENTITY:-}"
+ALLOW_DEV_SIGNING="${ALLOW_DEV_SIGNING:-0}"
 
 mkdir -p "$DIST_DIR"
 rm -rf "$DERIVED" "$ZIP_PATH"
@@ -48,15 +51,53 @@ build_icns() {
   rm -rf "$iconset_dir"
 }
 
-resign_app() {
-  local app_path="$1"
-  local signing_identity
-  signing_identity="$(codesign -dvv "$app_path" 2>&1 | awk -F= '/^Authority=/{print $2; exit}')"
-  if [[ -z "$signing_identity" ]]; then
-    signing_identity="-"
+resolve_signing_identity() {
+  if [[ -n "$SIGNING_IDENTITY" ]]; then
+    return
   fi
 
-  codesign --force --deep --sign "$signing_identity" --timestamp=none "$app_path"
+  SIGNING_IDENTITY="$(
+    security find-identity -v -p codesigning "$LOGIN_KEYCHAIN" 2>/dev/null |
+    awk -F'"' '/Developer ID Application:/ {print $2; exit}'
+  )"
+
+  if [[ -n "$SIGNING_IDENTITY" ]]; then
+    return
+  fi
+
+  if [[ "$ALLOW_DEV_SIGNING" == "1" ]]; then
+    SIGNING_IDENTITY="$(
+      security find-identity -v -p codesigning "$LOGIN_KEYCHAIN" 2>/dev/null |
+      awk -F'"' '/Apple Development:/ {print $2; exit}'
+    )"
+    if [[ -n "$SIGNING_IDENTITY" ]]; then
+      echo "警告：未找到 Developer ID Application，当前改用 Apple Development 生成仅限本机测试的发布包。" >&2
+      return
+    fi
+  fi
+
+  cat >&2 <<'EOF'
+错误：未找到 Developer ID Application 证书。
+
+当前这台机器只能生成本机测试包，不能生成适合上传 GitHub 给其他用户直接下载安装的正式发布包。
+原因：公开分发的 macOS 应用需要 Developer ID Application 签名，通常还需要 Apple 公证。
+
+如果你只想本机测试，可这样执行：
+  ALLOW_DEV_SIGNING=1 ./scripts/build_release_zip.sh
+EOF
+  exit 1
+}
+
+resign_app() {
+  local app_path="$1"
+  resolve_signing_identity
+
+  if [[ -n "$SIGNING_IDENTITY" ]]; then
+    codesign --force --deep --options runtime --keychain "$LOGIN_KEYCHAIN" --sign "$SIGNING_IDENTITY" --timestamp "$app_path"
+  else
+    codesign --force --deep --sign - --timestamp=none "$app_path"
+  fi
+  codesign --verify --deep --strict --verbose=2 "$app_path" >/dev/null
 }
 
 generate_brand_assets
@@ -82,5 +123,7 @@ cp "$ICON_ICNS" "$BUILT_APP_PATH/Contents/Resources/AppIcon.icns"
 resign_app "$BUILT_APP_PATH"
 
 cp -R "$BUILT_APP_PATH" "$STAGED_APP_PATH"
+resign_app "$STAGED_APP_PATH"
+/usr/sbin/spctl -a -vv "$STAGED_APP_PATH" >/dev/null 2>&1 || true
 ditto -c -k --sequesterRsrc --keepParent "$STAGED_APP_PATH" "$ZIP_PATH"
 echo "Release ZIP 已生成：$ZIP_PATH"
