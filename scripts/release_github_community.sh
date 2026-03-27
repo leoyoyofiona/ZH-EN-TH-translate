@@ -61,8 +61,7 @@ write_notes() {
 3. 将 ${APP_DISPLAY_NAME}.app 拖到 Applications
 4. 在“终端”执行：
 
-   bash
-   xattr -dr com.apple.quarantine "/Applications/${APP_DISPLAY_NAME}.app"
+       xattr -dr com.apple.quarantine "/Applications/${APP_DISPLAY_NAME}.app"
 
 5. 再打开应用，并按提示授权：
    - 屏幕录制
