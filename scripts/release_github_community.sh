@@ -8,8 +8,10 @@ APP_DISPLAY_NAME="多国语言同声翻译"
 VERSION_FILE="$ROOT/Configurations/Version.xcconfig"
 VERSION="$(awk -F'= ' '/MARKETING_VERSION/ {print $2; exit}' "$VERSION_FILE" | tr -d '[:space:]')"
 TAG="v${VERSION}"
-ZIP_PATH="$ROOT/dist/${APP_DISPLAY_NAME}-v${VERSION}-macOS.zip"
-DMG_PATH="$ROOT/dist/${APP_DISPLAY_NAME}-v${VERSION}-macOS.dmg"
+ZIP_NAME="multilingual-live-translator-v${VERSION}-macOS.zip"
+DMG_NAME="multilingual-live-translator-v${VERSION}-macOS.dmg"
+ZIP_PATH="$ROOT/dist/${ZIP_NAME}"
+DMG_PATH="$ROOT/dist/${DMG_NAME}"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/offline-community-release.XXXXXX")"
 NOTES_FILE="$TMP_DIR/release-notes.md"
 REPO="${GITHUB_REPOSITORY:-}"
@@ -49,8 +51,8 @@ write_notes() {
 
 ### 下载内容
 
-- ${APP_DISPLAY_NAME}-v${VERSION}-macOS.dmg
-- ${APP_DISPLAY_NAME}-v${VERSION}-macOS.zip
+- ${DMG_NAME}
+- ${ZIP_NAME}
 
 ### 安装步骤
 

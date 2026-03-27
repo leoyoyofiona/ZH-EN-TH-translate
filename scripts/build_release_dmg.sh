@@ -8,7 +8,7 @@ VERSION="$(awk -F'= ' '/MARKETING_VERSION/ {print $2; exit}' "$VERSION_FILE" | t
 DIST_DIR="$ROOT/dist"
 DERIVED="$ROOT/.xcode-release"
 BUILT_APP_PATH="$DERIVED/Build/Products/Release/OfflineInterpreterApp.app"
-DMG_NAME="${APP_DISPLAY_NAME}-v${VERSION}-macOS.dmg"
+DMG_NAME="multilingual-live-translator-v${VERSION}-macOS.dmg"
 DMG_PATH="$DIST_DIR/$DMG_NAME"
 STAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/offline-interpreter-dmg.XXXXXX")"
 STAGED_APP_PATH="$STAGE_DIR/${APP_DISPLAY_NAME}.app"

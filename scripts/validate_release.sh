@@ -5,8 +5,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DISPLAY_NAME="多国语言同声翻译"
 VERSION_FILE="$ROOT/Configurations/Version.xcconfig"
 VERSION="$(awk -F'= ' '/MARKETING_VERSION/ {print $2; exit}' "$VERSION_FILE" | tr -d '[:space:]')"
-ZIP_PATH="$ROOT/dist/${APP_DISPLAY_NAME}-v${VERSION}-macOS.zip"
-DMG_PATH="$ROOT/dist/${APP_DISPLAY_NAME}-v${VERSION}-macOS.dmg"
+ZIP_PATH="$ROOT/dist/multilingual-live-translator-v${VERSION}-macOS.zip"
+DMG_PATH="$ROOT/dist/multilingual-live-translator-v${VERSION}-macOS.dmg"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/offline-release-validate.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 

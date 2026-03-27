@@ -7,8 +7,8 @@ VERSION_FILE="$ROOT/Configurations/Version.xcconfig"
 VERSION="$(awk -F'= ' '/MARKETING_VERSION/ {print $2; exit}' "$VERSION_FILE" | tr -d '[:space:]')"
 PROFILE_NAME="${NOTARY_PROFILE:-codex-release}"
 DIST_DIR="$ROOT/dist"
-ZIP_PATH="$DIST_DIR/${APP_DISPLAY_NAME}-v${VERSION}-macOS.zip"
-DMG_PATH="$DIST_DIR/${APP_DISPLAY_NAME}-v${VERSION}-macOS.dmg"
+ZIP_PATH="$DIST_DIR/multilingual-live-translator-v${VERSION}-macOS.zip"
+DMG_PATH="$DIST_DIR/multilingual-live-translator-v${VERSION}-macOS.dmg"
 
 if [[ ! -f "$ZIP_PATH" ]]; then
   echo "未找到 ZIP：$ZIP_PATH" >&2

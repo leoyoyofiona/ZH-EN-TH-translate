@@ -78,7 +78,7 @@
 ### 方式一：从 Releases 下载
 
 - 仓库地址：[ZH-EN-TH-translate](https://github.com/leoyoyofiona/ZH-EN-TH-translate)
-- 推荐下载发布包：`多国语言同声翻译-v0.1.2-macOS.dmg`
+- 推荐下载发布包：`multilingual-live-translator-v0.1.2-macOS.dmg`
 - 普通用户不需要安装 Xcode、终端工具或任何开发环境
 
 安装步骤：
@@ -130,7 +130,7 @@ ALLOW_DEV_SIGNING=1 ./scripts/build_release_dmg.sh
 生成结果默认位于：
 
 ```bash
-dist/多国语言同声翻译-v0.1.2-macOS.dmg
+dist/multilingual-live-translator-v0.1.2-macOS.dmg
 ```
 
 ### 方式二：直接运行源码
