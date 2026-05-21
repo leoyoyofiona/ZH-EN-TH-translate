@@ -257,6 +257,7 @@ public final class AppViewModel: ObservableObject {
     public func handleAudioSourceChanged() {
         guard !launchDemoSnapshot else { return }
         Task {
+            await readinessService.requestMissingPermissions(for: audioSource)
             await refreshReadiness()
             if isRunning {
                 await restartPipeline(resetSegments: false)

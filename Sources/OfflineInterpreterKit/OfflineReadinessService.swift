@@ -9,8 +9,8 @@ public final class OfflineReadinessService: @unchecked Sendable {
     public init() {}
 
     public func requestMissingPermissions(for audioSource: AudioSourceKind) async {
-        if audioSource == .microphone && AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
-            _ = await AVCaptureDevice.requestAccess(for: .audio)
+        if audioSource == .microphone && Self.currentMicrophonePermission() == .notDetermined {
+            _ = await requestMicrophoneAuthorization()
         }
 
         if SFSpeechRecognizer.authorizationStatus() == .notDetermined {
@@ -27,7 +27,7 @@ public final class OfflineReadinessService: @unchecked Sendable {
         sourceLanguage: SupportedLanguage,
         targetLanguage: SupportedLanguage
     ) async -> OfflineReadinessReport {
-        let microphonePermission = Self.mapMicrophonePermission(AVCaptureDevice.authorizationStatus(for: .audio))
+        let microphonePermission = Self.currentMicrophonePermission()
         let speechPermission = await currentSpeechPermission()
         let screenCapturePermission = CGPreflightScreenCaptureAccess() ? PermissionState.authorized : .denied
 
@@ -131,6 +131,20 @@ public final class OfflineReadinessService: @unchecked Sendable {
         Self.mapSpeechPermission(SFSpeechRecognizer.authorizationStatus())
     }
 
+    private func requestMicrophoneAuthorization() async -> PermissionState {
+        if #available(macOS 14.0, *) {
+            return await withCheckedContinuation { continuation in
+                AVAudioApplication.requestRecordPermission { granted in
+                    let resolved = granted ? PermissionState.authorized : Self.currentMicrophonePermission()
+                    continuation.resume(returning: resolved)
+                }
+            }
+        }
+
+        let granted = await AVCaptureDevice.requestAccess(for: .audio)
+        return granted ? .authorized : Self.currentMicrophonePermission()
+    }
+
     private func requestSpeechAuthorization() async -> PermissionState {
         await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { status in
@@ -139,7 +153,36 @@ public final class OfflineReadinessService: @unchecked Sendable {
         }
     }
 
-    private static func mapMicrophonePermission(_ status: AVAuthorizationStatus) -> PermissionState {
+    static func currentMicrophonePermission() -> PermissionState {
+        let capturePermission = AVCaptureDevice.authorizationStatus(for: .audio)
+        if #available(macOS 14.0, *) {
+            return resolveMicrophonePermission(
+                audioApplicationPermission: AVAudioApplication.shared.recordPermission,
+                capturePermission: capturePermission
+            )
+        }
+
+        return mapCaptureMicrophonePermission(capturePermission)
+    }
+
+    static func resolveMicrophonePermission(
+        audioApplicationPermission: AVAudioApplication.recordPermission,
+        capturePermission: AVAuthorizationStatus
+    ) -> PermissionState {
+        switch audioApplicationPermission {
+        case .granted:
+            return .authorized
+        case .denied:
+            return .denied
+        case .undetermined:
+            let captureState = mapCaptureMicrophonePermission(capturePermission)
+            return captureState == .authorized ? .authorized : .notDetermined
+        @unknown default:
+            return mapCaptureMicrophonePermission(capturePermission)
+        }
+    }
+
+    private static func mapCaptureMicrophonePermission(_ status: AVAuthorizationStatus) -> PermissionState {
         switch status {
         case .authorized: return .authorized
         case .notDetermined: return .notDetermined

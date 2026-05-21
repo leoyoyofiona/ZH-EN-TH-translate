@@ -2,12 +2,12 @@
 
 这份指南是给普通用户的，不需要 Xcode，不需要开发环境。
 
-适用版本：`v0.1.2`
+适用版本：`v0.1.3`
 
 下载地址：
-- [Release 页面](https://github.com/leoyoyofiona/ZH-EN-TH-translate/releases/tag/v0.1.2)
-- [DMG 直接下载](https://github.com/leoyoyofiona/ZH-EN-TH-translate/releases/download/v0.1.2/multilingual-live-translator-v0.1.2-macOS.dmg)
-- [ZIP 直接下载](https://github.com/leoyoyofiona/ZH-EN-TH-translate/releases/download/v0.1.2/multilingual-live-translator-v0.1.2-macOS.zip)
+- [Release 页面](https://github.com/leoyoyofiona/ZH-EN-TH-translate/releases/tag/v0.1.3)
+- [DMG 直接下载](https://github.com/leoyoyofiona/ZH-EN-TH-translate/releases/download/v0.1.3/multilingual-live-translator-v0.1.3-macOS.dmg)
+- [ZIP 直接下载](https://github.com/leoyoyofiona/ZH-EN-TH-translate/releases/download/v0.1.3/multilingual-live-translator-v0.1.3-macOS.zip)
 
 ## 安装前先知道
 
@@ -18,14 +18,14 @@
 
 ## 第 1 步：下载正确的安装包
 
-请选择 `v0.1.2`，优先下载 `DMG`：
+请选择 `v0.1.3`，优先下载 `DMG`：
 
 ![第1步：下载 Release](install/step-1-download-release.png)
 
 要下载的文件名是：
 
 ```text
-multilingual-live-translator-v0.1.2-macOS.dmg
+multilingual-live-translator-v0.1.3-macOS.dmg
 ```
 
 不要再下载旧版 `v0.1.1`。
@@ -77,7 +77,7 @@ xattr -dr com.apple.quarantine "/Applications/多国语言同声翻译.app"
 因为当前发布的是社区版，没有苹果公证。执行一次 `xattr -dr com.apple.quarantine ...` 后就可以正常打开。
 
 ### 2. 看到“已损坏，无法打开”怎么办？
-先确认下载的是 `v0.1.2`，然后执行上面的终端命令。旧版 `v0.1.1` 的确有坏包问题，不要再用。
+先确认下载的是 `v0.1.3`，然后执行上面的终端命令。旧版 `v0.1.1` 的确有坏包问题，不要再用。
 
 ### 3. 朋友不会用终端怎么办？
 把这条命令直接发给他复制粘贴即可：
@@ -92,9 +92,12 @@ xattr -dr com.apple.quarantine "/Applications/多国语言同声翻译.app"
 2. 权限是给 `多国语言同声翻译.app` 当前这份安装包开的
 3. 开完权限后完全退出应用，再重新打开一次
 
+### 5. 麦克风已经授权，为什么应用还说没授权？
+请先确认下载的是 `v0.1.3` 或更高版本。这个版本已经修复 macOS 26 下“麦克风实际已授权但应用误判未授权”的问题。
+
 ## 给朋友的最短版说明
 
-1. 下载 `multilingual-live-translator-v0.1.2-macOS.dmg`
+1. 下载 `multilingual-live-translator-v0.1.3-macOS.dmg`
 2. 拖 `多国语言同声翻译.app` 到 `Applications`
 3. 打开终端执行：
 

@@ -6,6 +6,8 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'docs' / 'install'
 OUT.mkdir(parents=True, exist_ok=True)
 ICON_PATH = ROOT / 'Resources' / 'AppIcon-base.png'
+VERSION = 'v0.1.3'
+PREVIOUS_BROKEN_VERSION = 'v0.1.1'
 
 W, H = 1600, 980
 BG_TOP = (246, 249, 255)
@@ -133,9 +135,9 @@ def card_download(base, draw):
     draw.text((left + 34, top + 140), '仓库', font=font(TITLE_FONT, 24), fill=MUTED)
     draw.text((left + 34, top + 180), 'leoyoyofiona/ZH-EN-TH-translate', font=font(TITLE_FONT, 34), fill=TEXT)
     draw.text((left + 34, top + 238), 'Release 标签', font=font(TITLE_FONT, 24), fill=MUTED)
-    draw.text((left + 34, top + 276), 'v0.1.2', font=font(TITLE_FONT, 34), fill=ACCENT)
+    draw.text((left + 34, top + 276), VERSION, font=font(TITLE_FONT, 34), fill=ACCENT)
 
-    url = 'https://github.com/leoyoyofiona/ZH-EN-TH-translate/releases/tag/v0.1.2'
+    url = f'https://github.com/leoyoyofiona/ZH-EN-TH-translate/releases/tag/{VERSION}'
     lines = wrap_text(draw, url, font(TITLE_FONT, 24), 780)
     y = top + 354
     draw.text((left, y), '打开这个地址下载：', font=font(TITLE_FONT, 28), fill=TEXT)
@@ -149,20 +151,20 @@ def card_download(base, draw):
     rounded_rect(draw, (right + 32, top + 136, W - 152, top + 232), 18, fill=(235, 245, 255), outline=None)
     file_font = font(TITLE_FONT, 23)
     yy = top + 162
-    for line in wrap_text(draw, 'multilingual-live-translator-v0.1.2-macOS.dmg', file_font, 300):
+    for line in wrap_text(draw, f'multilingual-live-translator-{VERSION}-macOS.dmg', file_font, 300):
         draw.text((right + 54, yy), line, font=file_font, fill=ACCENT)
         yy += 30
     draw.text((right + 32, top + 266), '备用：ZIP 版本', font=font(TITLE_FONT, 24), fill=MUTED)
     yy = top + 302
     zip_font = font(TITLE_FONT, 20)
-    for line in wrap_text(draw, 'multilingual-live-translator-v0.1.2-macOS.zip', zip_font, 318):
+    for line in wrap_text(draw, f'multilingual-live-translator-{VERSION}-macOS.zip', zip_font, 318):
         draw.text((right + 32, yy), line, font=zip_font, fill=TEXT)
         yy += 26
 
     draw_bullets(draw, left, top + 468, [
         '优先下载 DMG，安装路径更直观。',
-        '如果朋友看到多个版本，只下载 v0.1.2。',
-        '不要再下载旧版 v0.1.1。'
+        f'如果朋友看到多个版本，只下载 {VERSION}。',
+        f'不要再下载旧版 {PREVIOUS_BROKEN_VERSION}。'
     ], width=1320)
 
 
@@ -252,7 +254,7 @@ def card_permissions(base, draw):
     ], width=1320, bullet_color=WARNING)
 
 
-make_card('step-1-download-release.png', 'STEP 1', '从 GitHub Release 下载安装包', '先找到正确的 v0.1.2 安装文件', card_download)
+make_card('step-1-download-release.png', 'STEP 1', '从 GitHub Release 下载安装包', f'先找到正确的 {VERSION} 安装文件', card_download)
 make_card('step-2-drag-to-applications.png', 'STEP 2', '把应用拖到 Applications', '不要直接在 DMG 里运行', card_drag)
 make_card('step-3-remove-quarantine.png', 'STEP 3', '首次打开前移除隔离属性', '没有 Developer ID 时，这一步必需', card_terminal)
 make_card('step-4-grant-permissions.png', 'STEP 4', '首次授权并下载所需语言资源', '授权一次后就可以长期使用', card_permissions)
